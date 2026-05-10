@@ -57,11 +57,23 @@ function nodeOpName(node: WorkflowNode): string {
 
 function edgeVarName(edge: WorkflowEdge, source: WorkflowNode): string {
   if (edge.varName) return safeIdentifier(edge.varName, "out")
-  // Auto-derive: `<sourceId>_out` (or sourceId if outputs has one entry named).
-  if (source.outputs.length === 1) {
-    return safeIdentifier(`${source.id}_${source.outputs[0]}`, source.id)
+  // Prefer the source node's declared output name verbatim — that's what the
+  // parser stores when reading TS (e.g. outputs=["leftDepth"]) and it lets
+  // round-tripped code reference the original variable names.
+  if (source.outputs.length === 1 && source.outputs[0]) {
+    return safeIdentifier(source.outputs[0], "out")
   }
   return safeIdentifier(`${source.id}_out`, source.id)
+}
+
+function nodeOutputVarName(node: WorkflowNode): string {
+  // Variable name produced by `const X = call(...)`. Mirrors edgeVarName so
+  // that downstream nodes referencing this output via varName resolve to the
+  // same identifier.
+  if (node.outputs.length === 1 && node.outputs[0]) {
+    return safeIdentifier(node.outputs[0], "out")
+  }
+  return safeIdentifier(`${node.id}_out`, node.id)
 }
 
 function paramLiteral(value: unknown): string {
@@ -71,16 +83,65 @@ function paramLiteral(value: unknown): string {
   return JSON.stringify(value)
 }
 
-function renderCallArgs(node: WorkflowNode, ctx: CodegenContext): string {
-  // Collected from incoming edges (variable bindings) + node.params (literal kwargs).
+function readArgsFromParams(node: WorkflowNode): string[] | null {
+  // The parser stores positional argument expressions under `_args.N` keys
+  // (so property accesses, literals, and computed exprs survive a TS round
+  // trip without needing synthetic literal nodes). When present, the codegen
+  // emits these verbatim and ignores both incoming-edge varNames and the
+  // entry-param fallback for this node.
+  const params = (node.params ?? {}) as Record<string, unknown>
+  const indexed: { i: number; v: string }[] = []
+  for (const [k, v] of Object.entries(params)) {
+    const m = k.match(/^_args\.(\d+)$/)
+    if (m && typeof v === "string") {
+      indexed.push({ i: Number(m[1]), v })
+    }
+  }
+  if (indexed.length === 0) return null
+  indexed.sort((a, b) => a.i - b.i)
+  return indexed.map((p) => p.v)
+}
+
+function nonInternalParamEntries(node: WorkflowNode): [string, unknown][] {
+  return Object.entries(node.params ?? {}).filter(
+    ([k]) => !k.startsWith("_args.") && k !== "_await",
+  )
+}
+
+function renderCallArgs(
+  node: WorkflowNode,
+  ctx: CodegenContext,
+  entryParams: string[],
+  rootEntryConsumed: { value: boolean },
+): string {
+  const explicit = readArgsFromParams(node)
+  if (explicit !== null) {
+    // Mark entry params consumed if this orphan node took them on a previous
+    // codegen — we don't actually need to mark, but doing so keeps the
+    // first-orphan invariant.
+    if ((ctx.incomingByNode.get(node.id) ?? []).length === 0) {
+      rootEntryConsumed.value = true
+    }
+    return explicit.join(", ")
+  }
+
   const incoming = ctx.incomingByNode.get(node.id) ?? []
   const positional: string[] = []
-  for (const e of incoming) {
-    const sourceNode = ctx.nodeById.get(e.source)
-    if (!sourceNode) continue
-    positional.push(edgeVarName(e, sourceNode))
+  if (incoming.length === 0 && entryParams.length > 0 && !rootEntryConsumed.value) {
+    // Convention: the first orphan call/llm node gets the workflow's entry
+    // parameters as positional args, in declaration order. Subsequent
+    // orphans render as `op()` and the user can wire incoming edges or set
+    // params kwargs to give them inputs.
+    rootEntryConsumed.value = true
+    for (const p of entryParams) positional.push(safeIdentifier(p, "_"))
+  } else {
+    for (const e of incoming) {
+      const sourceNode = ctx.nodeById.get(e.source)
+      if (!sourceNode) continue
+      positional.push(edgeVarName(e, sourceNode))
+    }
   }
-  const kwargs = Object.entries(node.params || {})
+  const kwargs = nonInternalParamEntries(node)
     .map(([k, v]) => `${safeIdentifier(k, "_")}: ${paramLiteral(v)}`)
   if (kwargs.length > 0) {
     positional.push(`{ ${kwargs.join(", ")} }`)
@@ -88,16 +149,22 @@ function renderCallArgs(node: WorkflowNode, ctx: CodegenContext): string {
   return positional.join(", ")
 }
 
-function renderCallStatement(node: WorkflowNode, ctx: CodegenContext, indent: string): string {
+function renderCallStatement(
+  node: WorkflowNode,
+  ctx: CodegenContext,
+  indent: string,
+  entryParams: string[],
+  rootEntryConsumed: { value: boolean },
+): string {
   const op = nodeOpName(node)
-  const args = renderCallArgs(node, ctx)
+  const args = renderCallArgs(node, ctx, entryParams, rootEntryConsumed)
+  const awaitPrefix = node.kind === "llm" || node.params._await === true ? "await " : ""
   // For multi-output destructure: const { a, b } = op(...). Single → const out = op(...).
   if (node.outputs.length > 1) {
     const fields = node.outputs.map((o) => safeIdentifier(o, "_")).join(", ")
-    return `${indent}const { ${fields} } = ${op === "llm" ? "await " : ""}${op}(${args})`
+    return `${indent}const { ${fields} } = ${awaitPrefix}${op}(${args})`
   }
-  const outVar = safeIdentifier(`${node.id}_${node.outputs[0] ?? "out"}`, node.id)
-  const awaitPrefix = node.kind === "llm" ? "await " : ""
+  const outVar = nodeOutputVarName(node)
   return `${indent}const ${outVar} = ${awaitPrefix}${op}(${args})`
 }
 
@@ -132,7 +199,17 @@ function topologicalOrder(nodes: WorkflowNode[], ctx: CodegenContext): WorkflowN
   return ordered
 }
 
-function renderNode(node: WorkflowNode, ctx: CodegenContext, indent: string): string {
+interface RenderArgs {
+  entryParams: string[]
+  rootEntryConsumed: { value: boolean }
+}
+
+function renderNode(
+  node: WorkflowNode,
+  ctx: CodegenContext,
+  indent: string,
+  args: RenderArgs,
+): string {
   switch (node.kind) {
     case "note":
     case "callout":
@@ -140,47 +217,98 @@ function renderNode(node: WorkflowNode, ctx: CodegenContext, indent: string): st
       // Render as a comment.
       const text = (node.text || node.op || node.id).replace(/\r?\n/g, " ")
       return `${indent}// ${text}`
+    case "return": {
+      // Skip control-flow edges (branch arms point at the return node to
+      // signal "this is the yes/no leg of that decision" — they don't carry
+      // a value to return). Only true value edges count.
+      const incoming = (ctx.incomingByNode.get(node.id) ?? []).filter((e) => {
+        const src = ctx.nodeById.get(e.source)
+        return src?.kind !== "branch"
+      })
+      if (incoming.length > 0) {
+        const sourceNode = ctx.nodeById.get(incoming[0].source)
+        if (sourceNode) {
+          return `${indent}return ${edgeVarName(incoming[0], sourceNode)}`
+        }
+      }
+      // No value-edge: emit the literal expression stored in op.
+      return `${indent}return ${node.op || "undefined"}`
+    }
     case "branch": {
+      // Predicate priority:
+      //   1. node.op when set — the user wrote an explicit predicate
+      //      (e.g. "node === null" or "val < node.val").
+      //   2. incoming edge varName when op is empty — the predicate is
+      //      whatever the incoming flow brought in.
+      //   3. fall back to "true" so generated code at least parses.
       const incoming = ctx.incomingByNode.get(node.id) ?? []
-      const cond = incoming.length > 0
-        ? edgeVarName(incoming[0], ctx.nodeById.get(incoming[0].source)!)
-        : (node.op || "true")
+      const cond = node.op
+        ? node.op
+        : incoming.length > 0
+          ? edgeVarName(incoming[0], ctx.nodeById.get(incoming[0].source)!)
+          : "true"
       const out = ctx.outgoingByNode.get(node.id) ?? []
       const yesEdge = out.find((e) => e.sourceHandle === "source-top")
       const noEdge = out.find((e) => e.sourceHandle === "source-bottom")
-      const yesBranch = yesEdge ? renderBranchBody(yesEdge.target, ctx, indent + "  ") : `${indent}  // (no yes branch)`
-      const noBranch = noEdge ? renderBranchBody(noEdge.target, ctx, indent + "  ") : `${indent}  // (no no branch)`
-      return `${indent}if (${cond}) {\n${yesBranch}\n${indent}} else {\n${noBranch}\n${indent}}`
+      const yesBranch = yesEdge ? renderBranchBody(yesEdge.target, ctx, indent + "  ", args) : `${indent}  // (no yes branch)`
+      // Omit the else block entirely when there's no source-bottom edge — the
+      // original code may not have had an else, in which case the post-branch
+      // flow continues sequentially after the if-block.
+      if (noEdge) {
+        const noBranch = renderBranchBody(noEdge.target, ctx, indent + "  ", args)
+        return `${indent}if (${cond}) {\n${yesBranch}\n${indent}} else {\n${noBranch}\n${indent}}`
+      }
+      return `${indent}if (${cond}) {\n${yesBranch}\n${indent}}`
     }
     case "loop": {
       const body = ctx.childrenByContainer.get(node.id) ?? []
       const loopVar = safeIdentifier(`${node.id}_i`, "i")
       const bodyOrdered = topologicalOrder(body, ctx)
-      const bodyLines = bodyOrdered.map((n) => renderNode(n, ctx, indent + "  ")).join("\n")
+      const bodyLines = bodyOrdered.map((n) => renderNode(n, ctx, indent + "  ", args)).join("\n")
       return `${indent}for (let ${loopVar} = 0; ${loopVar} < ${node.loopCount}; ${loopVar}++) {\n${bodyLines}\n${indent}}`
     }
     case "parallel": {
       const body = ctx.childrenByContainer.get(node.id) ?? []
       const branches = body
-        .map((n) => `${indent}  (async () => { ${renderNode(n, ctx, "").trim()} })()`)
+        .map((n) => `${indent}  (async () => { ${renderNode(n, ctx, "", args).trim()} })()`)
         .join(",\n")
       return `${indent}await Promise.all([\n${branches}\n${indent}])`
     }
     case "call":
     case "llm":
     default:
-      return renderCallStatement(node, ctx, indent)
+      return renderCallStatement(node, ctx, indent, args.entryParams, args.rootEntryConsumed)
   }
 }
 
-function renderBranchBody(targetId: string, ctx: CodegenContext, indent: string): string {
-  // For a branch arm we emit just the target node's statement. Deeper graphs
-  // are handled by the surrounding sequential walk; an arm pointing into the
-  // shared post-branch flow is fine because that flow will be emitted in the
-  // top-level walk later.
+function renderBranchBody(
+  targetId: string,
+  ctx: CodegenContext,
+  indent: string,
+  args: RenderArgs,
+): string {
   const node = ctx.nodeById.get(targetId)
   if (!node) return `${indent}// (missing target ${targetId})`
-  return renderNode(node, ctx, indent)
+  // Walk forward through the branch: render this node, then any node whose
+  // only incoming edge comes from it (and isn't merged with the post-branch
+  // flow). This lets a single branch arm contain a chain ending in a return.
+  const lines: string[] = [renderNode(node, ctx, indent, args)]
+  let current: WorkflowNode | undefined = node
+  const seen = new Set([node.id])
+  while (current) {
+    const out = ctx.outgoingByNode.get(current.id) ?? []
+    if (out.length !== 1) break
+    const nextNode = ctx.nodeById.get(out[0].target)
+    if (!nextNode || seen.has(nextNode.id)) break
+    const nextIncoming = ctx.incomingByNode.get(nextNode.id) ?? []
+    // Only follow the chain if this node is the sole reachable predecessor —
+    // otherwise the target belongs to the shared post-branch flow.
+    if (nextIncoming.length !== 1) break
+    seen.add(nextNode.id)
+    lines.push(renderNode(nextNode, ctx, indent, args))
+    current = nextNode
+  }
+  return lines.join("\n")
 }
 
 export interface CodegenResult {
@@ -213,9 +341,33 @@ export function generateWorkflowSource(data: WorkflowBoardData, options: { entry
     }
   }
 
+  // Also: nodes consumed by a branch arm's chain (via renderBranchBody) get
+  // skipped from the top-level walk to avoid double-rendering. We compute
+  // them up front by simulating the chain.
+  const consumedByBranchChain = new Set<string>()
+  for (const id of consumedByBranch) {
+    const seen = new Set([id])
+    let current: WorkflowNode | undefined = ctx.nodeById.get(id)
+    while (current) {
+      const out = ctx.outgoingByNode.get(current.id) ?? []
+      if (out.length !== 1) break
+      const nextNode = ctx.nodeById.get(out[0].target)
+      if (!nextNode || seen.has(nextNode.id)) break
+      const nextIncoming = ctx.incomingByNode.get(nextNode.id) ?? []
+      if (nextIncoming.length !== 1) break
+      consumedByBranchChain.add(nextNode.id)
+      seen.add(nextNode.id)
+      current = nextNode
+    }
+  }
+
+  const renderArgs: RenderArgs = {
+    entryParams: data.entryParams,
+    rootEntryConsumed: { value: false },
+  }
   const bodyLines = ordered
-    .filter((n) => !consumedByBranch.has(n.id))
-    .map((n) => renderNode(n, ctx, "  "))
+    .filter((n) => !consumedByBranch.has(n.id) && !consumedByBranchChain.has(n.id))
+    .map((n) => renderNode(n, ctx, "  ", renderArgs))
     .join("\n")
 
   const entryName = safeIdentifier(options.entryName ?? "workflow", "workflow")
@@ -224,9 +376,14 @@ export function generateWorkflowSource(data: WorkflowBoardData, options: { entry
     ? data.imports.map((line) => line.trim()).filter(Boolean).join("\n") + "\n\n"
     : ""
 
-  // Choose a return value: the last sequential output, if any.
-  const lastNode = ordered.filter((n) => n.kind === "call" || n.kind === "llm").pop()
-  const returnLine = lastNode
+  // Choose a return value: only emit a trailing `return X` when the body
+  // doesn't already end in an explicit `return` (e.g. through a `return`
+  // node or every branch arm returning).
+  const trailingReturnNeeded = !bodyLines.split("\n").some((line) => /^\s*return\b/.test(line))
+  const lastNode = ordered
+    .filter((n) => (n.kind === "call" || n.kind === "llm") && !consumedByBranchChain.has(n.id))
+    .pop()
+  const returnLine = trailingReturnNeeded && lastNode
     ? `  return ${safeIdentifier(`${lastNode.id}_${lastNode.outputs[0] ?? "out"}`, lastNode.id)}\n`
     : ""
 

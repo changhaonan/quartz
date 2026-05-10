@@ -10,10 +10,11 @@ import { z } from "zod"
 export const WorkflowNodeKind = z.enum([
   // The executable kinds — they map to TS constructs at codegen time.
   "call",       // generic function/tool call: `out = op(...params, ...inputs)`
-  "llm",        // LLM completion: `out = llm(prompt, model, ...)`
+  "llm",        // LLM completion: `out = await llm(prompt, model, ...)`
   "branch",     // decision diamond: yes/no, mapped to if/else
   "loop",       // stack with loopCount > 1, mapped to for-loop
   "parallel",   // lane/group containing independent branches; Promise.all
+  "return",     // explicit return statement: `return <incoming-var>`
   // Visual-only kinds — codegen skips these (treated as comments).
   "note",
   "callout",
@@ -115,6 +116,7 @@ export const KIND_TO_VISUAL: Record<WorkflowNodeKind, WorkflowVisualKind> = {
   branch: "decision",
   loop: "stack",
   parallel: "lane",
+  return: "label",
   note: "note",
   callout: "callout",
   label: "label",
