@@ -1,14 +1,65 @@
 import React from "react"
 import { createRoot, type Root } from "react-dom/client"
-import type { WidgetMountContext } from "../types"
+import type { JsonPatchOp, WidgetMountContext } from "../types"
 import type { IllustrationBoardData } from "./schema"
 import IllustrationCanvas from "./canvas/IllustrationCanvas"
 
-interface NodeMoveEvent {
-  id: string
-  index: number
-  x: number
-  y: number
+function decodeJsonPointer(pointer: string): (string | number)[] {
+  if (!pointer || pointer === "/") return []
+  if (!pointer.startsWith("/")) {
+    throw new Error(`json pointer must start with /: ${pointer}`)
+  }
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((seg) => seg.replace(/~1/g, "/").replace(/~0/g, "~"))
+}
+
+function applyPatchLocal(doc: unknown, ops: JsonPatchOp[]): unknown {
+  // Mutates a deep clone and returns the new root. Mirrors the server-side
+  // applier in handlers.js so optimistic UI matches the eventual on-disk state.
+  const root: { v: unknown } = { v: structuredClone(doc) }
+  for (const op of ops) {
+    const segs = decodeJsonPointer(op.path)
+    const last = segs.pop() as string | undefined
+    let parent: { v: unknown } | unknown = root
+    let key: string | number = "v"
+    for (const seg of segs) {
+        const next = (parent as Record<string | number, unknown>)[key]
+      if (next === null || typeof next !== "object") {
+        throw new Error(`json pointer traverses non-object: ${op.path}`)
+      }
+      parent = next
+      key = Array.isArray(parent) ? Number(seg) : seg
+    }
+    // @ts-expect-error: dynamic keying.
+    const target = parent[key]
+    if (target === null || typeof target !== "object") {
+      throw new Error(`json pointer parent is not an object/array: ${op.path}`)
+    }
+    const finalKey = Array.isArray(target)
+      ? last === "-"
+        ? target.length
+        : Number(last)
+      : (last as string)
+    const targetRecord = target as Record<string | number, unknown>
+    if (op.op === "replace") {
+      targetRecord[finalKey] = (op as { value: unknown }).value
+    } else if (op.op === "add") {
+      if (Array.isArray(target)) {
+        if (last === "-") target.push((op as { value: unknown }).value)
+        else target.splice(Number(finalKey), 0, (op as { value: unknown }).value)
+      } else {
+        targetRecord[finalKey] = (op as { value: unknown }).value
+      }
+    } else if (op.op === "remove") {
+      if (Array.isArray(target)) target.splice(Number(finalKey), 1)
+      else delete targetRecord[finalKey]
+    } else {
+      throw new Error(`unsupported op: ${(op as { op: string }).op}`)
+    }
+  }
+  return root.v
 }
 
 export function mountIllustrationBoard(
@@ -34,7 +85,9 @@ export function mountIllustrationBoard(
   const status = document.createElement("span")
   status.className = "illustration-board-frame__status"
   status.textContent =
-    ctx.mode === "live" ? "Drag nodes to reposition" : "Read-only"
+    ctx.mode === "live"
+      ? "Drag · click to select · Del to delete · drag from a handle to connect"
+      : "Read-only"
   chrome.appendChild(modeBadge)
   chrome.appendChild(status)
 
@@ -48,6 +101,7 @@ export function mountIllustrationBoard(
 
   let currentData: IllustrationBoardData = ctx.data
   let saving = false
+  let pendingOps: JsonPatchOp[] = []
 
   const setStatus = (
     kind: "idle" | "saving" | "saved" | "error",
@@ -69,46 +123,53 @@ export function mountIllustrationBoard(
       status.textContent = `Error: ${message ?? "write failed"}`
     } else {
       status.textContent =
-        ctx.mode === "live" ? "Drag nodes to reposition" : "Read-only"
+        ctx.mode === "live"
+          ? "Drag · click to select · Del to delete · drag from a handle to connect"
+          : "Read-only"
     }
   }
 
-  const handleNodeMove = async (event: NodeMoveEvent) => {
-    if (saving) return
+  const handleChange = async (ops: JsonPatchOp[]) => {
+    if (!ops || ops.length === 0) return
     if (!ctx.capabilities.canWrite) return
-    const node = currentData.nodes[event.index]
-    if (!node) return
-    const oldX = node.x
-    const oldY = node.y
-    if (oldX === event.x && oldY === event.y) return
 
+    // Optimistic local update so the canvas reflects the change immediately.
+    const previousData = currentData
+    let nextData: IllustrationBoardData
+    try {
+      nextData = applyPatchLocal(currentData, ops) as IllustrationBoardData
+    } catch (e) {
+      setStatus("error", (e as Error).message)
+      return
+    }
+    currentData = nextData
+    renderRoot()
+
+    // Coalesce: if a save is in flight, queue ops; the in-flight handler
+    // will flush them when it finishes. Keeps the file consistent with the
+    // optimistic local state without creating a stampede of writes.
+    if (saving) {
+      pendingOps.push(...ops)
+      return
+    }
     saving = true
     setStatus("saving")
-    currentData = {
-      ...currentData,
-      nodes: currentData.nodes.map((n, i) =>
-        i === event.index ? { ...n, x: event.x, y: event.y } : n,
-      ),
-    }
-    renderRoot()
-    const result = await ctx.write({
-      patch: [
-        { op: "replace", path: `/nodes/${event.index}/x`, value: event.x },
-        { op: "replace", path: `/nodes/${event.index}/y`, value: event.y },
-      ],
-    })
+    const result = await ctx.write({ patch: ops })
     saving = false
     if (result.ok) {
       setStatus("saved")
       window.setTimeout(() => setStatus("idle"), 1500)
+      // Drain any ops that arrived during this save.
+      if (pendingOps.length > 0) {
+        const drained = pendingOps
+        pendingOps = []
+        void handleChange(drained)
+      }
     } else {
       setStatus("error", result.error?.message)
-      currentData = {
-        ...currentData,
-        nodes: currentData.nodes.map((n, i) =>
-          i === event.index ? { ...n, x: oldX, y: oldY } : n,
-        ),
-      }
+      // Roll back optimistic update on failure.
+      currentData = previousData
+      pendingOps = []
       renderRoot()
     }
   }
@@ -120,7 +181,7 @@ export function mountIllustrationBoard(
         React.createElement(IllustrationCanvas, {
           data: currentData,
           mode: ctx.mode,
-          onNodeMove: handleNodeMove,
+          onChange: handleChange,
         } as React.ComponentProps<typeof IllustrationCanvas>),
       )
     } catch (e) {

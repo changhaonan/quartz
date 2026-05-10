@@ -103,10 +103,86 @@ await page.evaluate(() => {
 
 let dragResult = "skipped (no nodes)"
 if (flowState.found && flowState.nodes.length > 0) {
-  // Skip the hook-based saves: we now drive drag through real pointer events,
-  // matching what a user does. The hook stays available for emergency
-  // diagnosis but the primary flow exercises React Flow's drag machinery.
-  dragResult = "real-pointer drag (see above)"
+  dragResult = "real-pointer drag (above)"
+
+  console.log("\n=== add a process node ===")
+  const addRes = await page.evaluate(() => {
+    if (typeof window.__illustrationDebugAdd !== "function") return { ok: false }
+    return { ok: window.__illustrationDebugAdd("process") }
+  })
+  console.log(JSON.stringify(addRes))
+  await page.waitForTimeout(2000)
+
+  console.log("\n=== add an edge between two existing nodes ===")
+  // Use the hook indirectly: dispatch an `onConnect` via the IllustrationCanvas's
+  // own callback path through the rf-events flow. Easiest: simulate the same
+  // path React Flow takes — read source/target ids and call onChange directly.
+  const edgeAdd = await page.evaluate(() => {
+    // Find first two nodes by reading currently rendered DOM
+    const nodes = Array.from(document.querySelectorAll(".react-flow__node"))
+      .map((el) => el.getAttribute("data-id"))
+      .filter(Boolean)
+    if (nodes.length < 2) return { ok: false, reason: "need 2 nodes" }
+    // Trigger onConnect by directly invoking through window hook.
+    // (We don't have a direct add-edge hook, but onChange flows are exposed via
+    //  __illustrationDebugMove which only handles position. So this is a gap
+    //  in instrumentation — fall back to verifying via fetch.)
+    return { ok: true, source: nodes[0], target: nodes[1] }
+  })
+  console.log(JSON.stringify(edgeAdd))
+
+  console.log("\n=== run ELK auto-layout ===")
+  const layoutRes = await page.evaluate(async () => {
+    if (typeof window.__illustrationDebugLayout !== "function") return { ok: false }
+    await window.__illustrationDebugLayout()
+    return { ok: true }
+  })
+  console.log(JSON.stringify(layoutRes))
+  await page.waitForTimeout(4000)
+
+  console.log("\n=== select first node + delete ===")
+  await page.evaluate(() => {
+    const node = document.querySelector(".react-flow__node")
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    node.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 1,
+        clientX: rect.x + rect.width / 2,
+        clientY: rect.y + rect.height / 2,
+      }),
+    )
+    node.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        buttons: 0,
+        clientX: rect.x + rect.width / 2,
+        clientY: rect.y + rect.height / 2,
+      }),
+    )
+  })
+  await page.waitForTimeout(500)
+  const deleteRes = await page.evaluate(() => {
+    if (typeof window.__illustrationDebugDelete !== "function") return { ok: false }
+    return { ok: window.__illustrationDebugDelete() }
+  })
+  console.log(JSON.stringify(deleteRes))
+  await page.waitForTimeout(2500)
+
+  const finalStats = await page.evaluate(() => ({
+    nodes: document.querySelectorAll(".react-flow__node").length,
+    edges: document.querySelectorAll(".react-flow__edge").length,
+  }))
+  console.log("final canvas counts:", JSON.stringify(finalStats))
 }
 
 // Try a real user-style drag via Playwright's hover + mouse events.

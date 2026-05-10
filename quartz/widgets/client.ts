@@ -43,11 +43,12 @@ export async function writeWidget(
     }
   }
   if (!res.ok) {
-    let serverError: { code?: string; message?: string } | undefined
+    let serverError: { code: string; message: string } | undefined
     try {
       const parsed = (await res.json()) as WidgetWriteResult
-      if (parsed && typeof parsed === "object" && "error" in parsed) {
-        serverError = parsed.error
+      const err = parsed?.error
+      if (err && typeof err.code === "string" && typeof err.message === "string") {
+        serverError = { code: err.code, message: err.message }
       }
     } catch {}
     return {

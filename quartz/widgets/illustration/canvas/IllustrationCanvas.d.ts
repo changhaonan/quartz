@@ -1,17 +1,11 @@
 import type { ReactElement } from "react"
 import type { IllustrationBoardData } from "../schema"
-
-interface NodeMoveEvent {
-  id: string
-  index: number
-  x: number
-  y: number
-}
+import type { JsonPatchOp } from "../types"
 
 interface IllustrationCanvasProps {
   data: IllustrationBoardData
   mode: "readonly" | "live"
-  onNodeMove?: (event: NodeMoveEvent) => void
+  onChange?: (patch: JsonPatchOp[]) => void
 }
 
 declare function IllustrationCanvas(props: IllustrationCanvasProps): ReactElement

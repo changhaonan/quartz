@@ -56,3 +56,77 @@
     background: var(--light);
   }
 }
+
+.illustration-board__rf-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.illustration-board__toolbar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  pointer-events: none;
+
+  &-group {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    background: color-mix(in srgb, var(--light) 92%, transparent);
+    border: 1px solid var(--lightgray);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    pointer-events: auto;
+    backdrop-filter: blur(2px);
+
+    &--right { margin-left: auto; }
+  }
+
+  &-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0.55rem;
+    border: 0;
+    background: transparent;
+    color: var(--darkgray);
+    font-size: 0.74rem;
+    font-weight: 500;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 80ms ease, color 80ms ease;
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--lightgray) 60%, transparent);
+      color: var(--dark);
+    }
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    svg { display: block; }
+
+    &--accent-slate { color: #6e7e95; }
+    &--accent-amber { color: #b8830f; }
+    &--accent-mint { color: #2f8f78; }
+    &--accent-cyan { color: #2c84b8; }
+    &--accent-rose { color: #b65a76; }
+    &--accent-violet { color: #7c63c2; }
+
+    &--danger {
+      color: #b65a76;
+      &:hover:not(:disabled) {
+        background: color-mix(in srgb, #b65a76 18%, transparent);
+        color: #b65a76;
+      }
+    }
+  }
+}
