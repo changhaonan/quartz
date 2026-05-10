@@ -25,6 +25,10 @@ const edgeTypes = {
 // detection, which (in v12) re-evaluates viewport bookkeeping. Pin it once.
 const PRO_OPTIONS = { hideAttribution: true }
 const DEFAULT_FIT_VIEW_OPTIONS = { padding: 0.15, duration: 0 }
+// Stable initial viewport. We don't pass `fitView` as a prop anymore — see
+// the onInit handler — so RF needs an explicit starting point to render
+// against on mount and (more importantly) on container resize.
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
 
 function nodeSize(node) {
   const meta = ILLUSTRATION_NODE_TYPE_META[node.type] || ILLUSTRATION_NODE_TYPE_META.note
@@ -482,13 +486,25 @@ export default function BoardCanvas({
         }}
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
-        onInit={setReactFlowInstance}
+        onInit={(instance) => {
+          // Capture the instance AND run a one-shot fit. Using onInit
+          // instead of the `fitView` boolean prop avoids React Flow's
+          // ResizeObserver-driven refits on container resize, which was
+          // the source of the canvas flicker the user reported when the
+          // viewport changed size.
+          setReactFlowInstance(instance)
+          if (typeof instance.fitView === "function") {
+            // Defer one frame so the container has its final width before
+            // we compute the fit transform.
+            requestAnimationFrame(() => instance.fitView(DEFAULT_FIT_VIEW_OPTIONS))
+          }
+        }}
         nodesDraggable={editable}
         nodesConnectable={editable}
         elementsSelectable
         panOnDrag
         zoomOnScroll
-        fitView
+        defaultViewport={DEFAULT_VIEWPORT}
         fitViewOptions={DEFAULT_FIT_VIEW_OPTIONS}
         proOptions={PRO_OPTIONS}
       >
