@@ -228,15 +228,30 @@ function walkVariableStatement(
   if (call) {
     const outputs = declaredOutputNames(decl)
     const id = nextNodeId(ctx, call.callee.replace(/[^A-Za-z0-9_$]/g, "_"))
+    // Map well-known callee names to their dedicated kinds. These all imply
+    // `await` already so we don't also set _await.
+    const kindByCallee: Record<string, "ask" | "spawn" | "llm" | "call"> = {
+      ask: "ask",
+      spawn: "spawn",
+      llm: "llm",
+    }
+    const calleeBare = call.callee.split(".").pop() ?? call.callee
+    const inferredKind = kindByCallee[calleeBare]
+    const finalKind = inferredKind ?? (call.awaited ? "llm" : "call")
+    const finalColor = finalKind === "ask" ? "cyan" :
+      finalKind === "spawn" ? "violet" :
+      finalKind === "llm" ? "violet" :
+      "cyan"
+    const finalVisual = finalKind === "spawn" ? "artifact" : "process"
     ctx.nodes.push(
       makeBaseNode(
         {
           id,
-          kind: call.awaited ? "llm" : "call",
-          visual: "process",
+          kind: finalKind,
+          visual: finalVisual,
           op: call.callee,
           outputs,
-          color: call.awaited ? "violet" : "cyan",
+          color: finalColor,
           containerId,
         },
         ctx.nodes.length,
@@ -245,8 +260,9 @@ function walkVariableStatement(
     const { argTexts } = emitArgEdges(ctx, id, call.args)
     const node = ctx.nodes[ctx.nodes.length - 1]
     Object.assign(node.params, paramsFromArgs(argTexts))
-    if (call.awaited && call.callee !== "llm") {
-      // Encode "await" on a non-llm callee so codegen emits await again.
+    // Only mark _await for plain `call` kinds — ask/llm/spawn already imply
+    // await via their dedicated kinds, so the codegen doesn't need a hint.
+    if (call.awaited && finalKind === "call") {
       ;(node.params as Record<string, unknown>)._await = true
     }
     for (const name of outputs) {

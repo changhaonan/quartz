@@ -158,7 +158,13 @@ function renderCallStatement(
 ): string {
   const op = nodeOpName(node)
   const args = renderCallArgs(node, ctx, entryParams, rootEntryConsumed)
-  const awaitPrefix = node.kind === "llm" || node.params._await === true ? "await " : ""
+  const awaitPrefix =
+    node.kind === "llm" ||
+    node.kind === "ask" ||
+    node.kind === "spawn" ||
+    node.params._await === true
+      ? "await "
+      : ""
   // For multi-output destructure: const { a, b } = op(...). Single → const out = op(...).
   if (node.outputs.length > 1) {
     const fields = node.outputs.map((o) => safeIdentifier(o, "_")).join(", ")
@@ -218,9 +224,14 @@ function renderNode(
       const text = (node.text || node.op || node.id).replace(/\r?\n/g, " ")
       return `${indent}// ${text}`
     case "return": {
-      // Skip control-flow edges (branch arms point at the return node to
-      // signal "this is the yes/no leg of that decision" — they don't carry
-      // a value to return). Only true value edges count.
+      // Precedence (matches branch-predicate precedence):
+      //   1. node.op when set — explicit return expression. Useful when
+      //      the user wants `return back3.reply` while wired to back3.
+      //   2. value-edge varName — typical case.
+      //   3. "undefined" — last-resort literal so the function still
+      //      type-checks / runs.
+      // Branch-arm edges are control-flow only, never value edges.
+      if (node.op) return `${indent}return ${node.op}`
       const incoming = (ctx.incomingByNode.get(node.id) ?? []).filter((e) => {
         const src = ctx.nodeById.get(e.source)
         return src?.kind !== "branch"
@@ -231,8 +242,7 @@ function renderNode(
           return `${indent}return ${edgeVarName(incoming[0], sourceNode)}`
         }
       }
-      // No value-edge: emit the literal expression stored in op.
-      return `${indent}return ${node.op || "undefined"}`
+      return `${indent}return undefined`
     }
     case "branch": {
       // Predicate priority:
@@ -276,6 +286,8 @@ function renderNode(
     }
     case "call":
     case "llm":
+    case "ask":
+    case "spawn":
     default:
       return renderCallStatement(node, ctx, indent, args.entryParams, args.rootEntryConsumed)
   }
@@ -381,7 +393,11 @@ export function generateWorkflowSource(data: WorkflowBoardData, options: { entry
   // node or every branch arm returning).
   const trailingReturnNeeded = !bodyLines.split("\n").some((line) => /^\s*return\b/.test(line))
   const lastNode = ordered
-    .filter((n) => (n.kind === "call" || n.kind === "llm") && !consumedByBranchChain.has(n.id))
+    .filter(
+      (n) =>
+        (n.kind === "call" || n.kind === "llm" || n.kind === "ask" || n.kind === "spawn") &&
+        !consumedByBranchChain.has(n.id),
+    )
     .pop()
   const returnLine = trailingReturnNeeded && lastNode
     ? `  return ${safeIdentifier(`${lastNode.id}_${lastNode.outputs[0] ?? "out"}`, lastNode.id)}\n`
@@ -391,7 +407,10 @@ export function generateWorkflowSource(data: WorkflowBoardData, options: { entry
     warnings.push("graph reduces to nothing after branch consumption — check decision wiring")
   }
 
-  const source = `${importsBlock}export async function ${entryName}(${params}) {\n${bodyLines}${bodyLines && returnLine ? "\n" : ""}${returnLine}}\n`
+  // Cap the body with a newline before the closing brace so the formatter
+  // and human readers see `}` on its own line.
+  const bodyClosing = bodyLines || returnLine ? "\n" : ""
+  const source = `${importsBlock}export async function ${entryName}(${params}) {\n${bodyLines}${bodyLines && returnLine ? "\n" : ""}${returnLine}${bodyClosing}}\n`
 
   return { source, warnings }
 }

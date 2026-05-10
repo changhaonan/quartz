@@ -11,6 +11,8 @@ export const WorkflowNodeKind = z.enum([
   // The executable kinds — they map to TS constructs at codegen time.
   "call",       // generic function/tool call: `out = op(...params, ...inputs)`
   "llm",        // LLM completion: `out = await llm(prompt, model, ...)`
+  "ask",        // PTY ask:        `out = await ask(sessionId, prompt, opts?)`
+  "spawn",      // PTY spawn:      `out = await spawn({ agent, ... })`
   "branch",     // decision diamond: yes/no, mapped to if/else
   "loop",       // stack with loopCount > 1, mapped to for-loop
   "parallel",   // lane/group containing independent branches; Promise.all
@@ -113,6 +115,8 @@ export type WorkflowNodeColor = z.infer<typeof WorkflowNodeColor>
 export const KIND_TO_VISUAL: Record<WorkflowNodeKind, WorkflowVisualKind> = {
   call: "process",
   llm: "process",
+  ask: "process",
+  spawn: "artifact",
   branch: "decision",
   loop: "stack",
   parallel: "lane",

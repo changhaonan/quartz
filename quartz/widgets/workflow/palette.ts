@@ -8,13 +8,23 @@ import {
   Brain,
   GitBranch,
   Layers,
+  MessageCircle,
   Network,
   Play,
+  Plus,
   StickyNote,
 } from "lucide-react"
 
 export interface WorkflowPaletteEntry {
-  type: "call" | "llm" | "branch" | "loop" | "parallel" | "note"
+  type:
+    | "call"
+    | "llm"
+    | "ask"
+    | "spawn"
+    | "branch"
+    | "loop"
+    | "parallel"
+    | "note"
   label: string
   color: "slate" | "amber" | "mint" | "cyan" | "rose" | "violet"
   Icon: ComponentType<{ size?: number; strokeWidth?: number }>
@@ -33,6 +43,8 @@ export interface WorkflowPaletteEntry {
 }
 
 export const WORKFLOW_PALETTE: WorkflowPaletteEntry[] = [
+  { type: "ask", label: "Ask", color: "cyan", Icon: MessageCircle, defaultText: "ask(session, prompt)", visual: "process", op: "ask" },
+  { type: "spawn", label: "Spawn", color: "violet", Icon: Plus, defaultText: "spawn(role)", visual: "artifact", op: "spawn" },
   { type: "call", label: "Call", color: "cyan", Icon: Play, defaultText: "fn(input)", visual: "process", op: "callFn" },
   { type: "llm", label: "LLM", color: "violet", Icon: Brain, defaultText: "llm(prompt)", visual: "process", op: "llm" },
   { type: "branch", label: "Branch", color: "rose", Icon: GitBranch, defaultText: "predicate?", visual: "decision", op: "" },
