@@ -1,7 +1,8 @@
-// Bridge canvas CSS, extracted from claude_pty/client/src/styles.css.
-// Keep close to upstream so future bridge tweaks land here as a copy.
+// Bridge canvas CSS, extracted from claude_pty/client/src/styles.css,
+// with @xyflow/react/dist/style.css prepended (the React Flow framework
+// stylesheet — required for the canvas to render). Keep both close to
+// upstream so future bridge or React Flow tweaks land here as a copy.
 @use "./canvas-styles.css";
-@use "@xyflow/react/dist/style.css";
 
 .illustration-board-frame {
   display: flex;
@@ -43,12 +44,15 @@
   &__status--error  { color: #d96a8c; }
 
   &__canvas {
+    width: 100%;
     height: 600px;
     background: var(--light);
     position: relative;
   }
 
   .react-flow {
+    width: 100%;
+    height: 100%;
     background: var(--light);
   }
 }

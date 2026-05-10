@@ -115,13 +115,22 @@ export function mountIllustrationBoard(
 
   const root: Root = createRoot(canvasHost)
   const renderRoot = () => {
-    root.render(
-      React.createElement(IllustrationCanvas, {
-        data: currentData,
-        mode: ctx.mode,
-        onNodeMove: handleNodeMove,
-      } as React.ComponentProps<typeof IllustrationCanvas>),
-    )
+    try {
+      root.render(
+        React.createElement(IllustrationCanvas, {
+          data: currentData,
+          mode: ctx.mode,
+          onNodeMove: handleNodeMove,
+        } as React.ComponentProps<typeof IllustrationCanvas>),
+      )
+    } catch (e) {
+      const err = document.createElement("div")
+      err.className = "quartz-widget__error"
+      err.textContent = `Illustration canvas threw: ${(e as Error).message}`
+      canvasHost.innerHTML = ""
+      canvasHost.appendChild(err)
+      console.error("[illustration-board] render error", e)
+    }
   }
   renderRoot()
 

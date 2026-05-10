@@ -198,6 +198,19 @@ export const Widget: QuartzTransformerPlugin<Partial<WidgetOptions>> = (userOpts
                   ? contentRelativePath(attrs.src, mdPath, contentRoot)
                   : attrs.src
 
+              if (!attrs.workspaceId) {
+                const fmWorkspaceId =
+                  (file.data.frontmatter as Record<string, unknown> | undefined)?.[
+                    "workspaceId"
+                  ]
+                const runtimeWorkspaceId = file.data.runtime?.workspaceId
+                const inferred =
+                  typeof fmWorkspaceId === "string" && fmWorkspaceId
+                    ? fmWorkspaceId
+                    : runtimeWorkspaceId ?? ""
+                if (inferred) attrs.workspaceId = inferred
+              }
+
               if (mdPath) {
                 const result = validateData(
                   attrs.type,
