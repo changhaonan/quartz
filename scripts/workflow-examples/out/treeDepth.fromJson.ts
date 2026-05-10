@@ -8,4 +8,5 @@ export async function treeDepth(node) {
   const rightDepth = await treeDepth(node.right)
   const both = max(leftDepth, rightDepth)
   const result = addOne(both)
-  return result}
+  return result
+}

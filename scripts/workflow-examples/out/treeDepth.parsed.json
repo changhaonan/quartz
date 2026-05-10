@@ -43,8 +43,7 @@
       "visual": "process",
       "op": "treeDepth",
       "params": {
-        "_args.0": "node.left",
-        "_await": true
+        "_args.0": "node.left"
       },
       "outputs": [
         "leftDepth"
@@ -63,8 +62,7 @@
       "visual": "process",
       "op": "treeDepth",
       "params": {
-        "_args.0": "node.right",
-        "_await": true
+        "_args.0": "node.right"
       },
       "outputs": [
         "rightDepth"
