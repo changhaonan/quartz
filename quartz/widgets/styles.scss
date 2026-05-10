@@ -4,6 +4,7 @@
 // own styles.scss.
 
 @use "./illustration/styles.scss";
+@use "./workflow/styles.scss" as workflow;
 
 .quartz-widget {
   display: block;

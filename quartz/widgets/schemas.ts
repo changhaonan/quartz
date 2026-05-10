@@ -11,6 +11,11 @@ import {
   ILLUSTRATION_BOARD_TYPE,
   IllustrationBoardSchema,
 } from "./illustration/schema"
+import {
+  WORKFLOW_BOARD_SCHEMA_VERSION,
+  WORKFLOW_BOARD_TYPE,
+  WorkflowBoardSchema,
+} from "./workflow/schema"
 
 export interface WidgetSchemaDescriptor {
   schema: ZodType<unknown>
@@ -21,6 +26,10 @@ export const widgetSchemas: Record<string, WidgetSchemaDescriptor> = {
   [ILLUSTRATION_BOARD_TYPE]: {
     schema: IllustrationBoardSchema,
     version: ILLUSTRATION_BOARD_SCHEMA_VERSION,
+  },
+  [WORKFLOW_BOARD_TYPE]: {
+    schema: WorkflowBoardSchema,
+    version: WORKFLOW_BOARD_SCHEMA_VERSION,
   },
 }
 
