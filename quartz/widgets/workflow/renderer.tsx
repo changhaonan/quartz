@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 import React from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { Code2 } from "lucide-react"
+import { Code2, Play } from "lucide-react"
 import type { JsonPatchOp, WidgetMountContext } from "../types"
 import type { WorkflowBoardData, WorkflowNode } from "./schema"
 import { nodeVisualKind } from "./schema"
@@ -216,6 +216,37 @@ function exportButtonElement(onClick: () => void): React.ReactElement {
   )
 }
 
+function runButtonElement(
+  onClick: () => void,
+  busy: boolean,
+): React.ReactElement {
+  return React.createElement(
+    "button",
+    {
+      type: "button",
+      className: "illustration-board__toolbar-btn",
+      onClick,
+      title: "Run this workflow against the live bridge",
+      disabled: busy,
+    },
+    React.createElement(Play, { size: 14, strokeWidth: 2.2 }),
+    React.createElement("span", null, busy ? "Running…" : "Run"),
+  )
+}
+
+function toolbarRightCluster(
+  onExport: () => void,
+  onRun: () => void,
+  running: boolean,
+): React.ReactElement {
+  return React.createElement(
+    React.Fragment,
+    null,
+    runButtonElement(onRun, running),
+    exportButtonElement(onExport),
+  )
+}
+
 export function mountWorkflowBoard(
   ctx: WidgetMountContext<WorkflowBoardData>,
 ): () => void {
@@ -329,10 +360,55 @@ export function mountWorkflowBoard(
     }
     // Open a transient overlay with the generated TS so the user can copy
     // it. Click outside (or close button) to dismiss.
-    showCodePanel(result.source)
+    showCodePanel("Generated TypeScript", result.source)
   }
 
-  const showCodePanel = (source: string) => {
+  let running = false
+  const handleRun = async () => {
+    if (running) return
+    if (!ctx.capabilities.workspaceId) {
+      showRunPanel("error", "No workspaceId — set frontmatter `workspaceId: <id>` on the page.")
+      return
+    }
+    const gen = generateWorkflowSource(currentData, { entryName: "workflow" })
+    if (gen.warnings.length > 0) {
+      console.warn("[workflow-board] codegen warnings:", gen.warnings)
+    }
+    running = true
+    renderRoot()
+    showRunPanel("running", "Running workflow…")
+    let res: Response
+    try {
+      res = await fetch("/api/workflow/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: ctx.capabilities.workspaceId,
+          source: gen.source,
+          entryName: "workflow",
+          entryParams: [],
+        }),
+      })
+    } catch (e) {
+      running = false
+      renderRoot()
+      showRunPanel("error", `Network error: ${(e as Error).message}`)
+      return
+    }
+    let body: unknown = null
+    try {
+      body = await res.json()
+    } catch {}
+    running = false
+    renderRoot()
+    if (!res.ok) {
+      showRunPanel("error", JSON.stringify(body, null, 2))
+      return
+    }
+    showRunPanel("done", body)
+  }
+
+  const showCodePanel = (title: string, source: string) => {
     const existing = wrap.querySelector(".workflow-board__code-overlay")
     if (existing) existing.remove()
     const overlay = document.createElement("div")
@@ -340,18 +416,94 @@ export function mountWorkflowBoard(
     overlay.innerHTML = `
       <div class="workflow-board__code-panel">
         <div class="workflow-board__code-header">
-          <strong>Generated TypeScript</strong>
+          <strong></strong>
           <button type="button" class="workflow-board__code-copy">Copy</button>
           <button type="button" class="workflow-board__code-close">Close</button>
         </div>
         <pre class="workflow-board__code-body"></pre>
       </div>
     `
+    overlay.querySelector("strong")!.textContent = title
     overlay.querySelector(".workflow-board__code-body")!.textContent = source
     overlay
       .querySelector<HTMLButtonElement>(".workflow-board__code-copy")!
       .addEventListener("click", () => {
         void navigator.clipboard.writeText(source)
+      })
+    overlay
+      .querySelector<HTMLButtonElement>(".workflow-board__code-close")!
+      .addEventListener("click", () => overlay.remove())
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+    wrap.appendChild(overlay)
+  }
+
+  const showRunPanel = (
+    kind: "running" | "done" | "error",
+    payload: unknown,
+  ) => {
+    const existing = wrap.querySelector(".workflow-board__code-overlay")
+    if (existing) existing.remove()
+    const overlay = document.createElement("div")
+    overlay.className = "workflow-board__code-overlay"
+    let bodyText = ""
+    let title = ""
+    if (kind === "running") {
+      title = "Running…"
+      bodyText = typeof payload === "string" ? payload : ""
+    } else if (kind === "error") {
+      title = "Run failed"
+      bodyText = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)
+    } else {
+      const p = payload as {
+        ok?: boolean
+        runId?: string
+        runDir?: string
+        exitCode?: number
+        timedOut?: boolean
+        stdout?: string
+        stderr?: string
+        result?: unknown
+      } | null
+      const sections: string[] = []
+      sections.push(`runId: ${p?.runId ?? "?"}`)
+      sections.push(`runDir: ${p?.runDir ?? "?"}`)
+      sections.push(`exitCode: ${p?.exitCode ?? "?"}${p?.timedOut ? " (timed out)" : ""}`)
+      if (p?.result !== undefined) {
+        sections.push("")
+        sections.push("--- result ---")
+        sections.push(typeof p.result === "string" ? p.result : JSON.stringify(p.result, null, 2))
+      }
+      if (p?.stdout) {
+        sections.push("")
+        sections.push("--- stdout ---")
+        sections.push(p.stdout)
+      }
+      if (p?.stderr) {
+        sections.push("")
+        sections.push("--- stderr ---")
+        sections.push(p.stderr)
+      }
+      title = p?.ok ? "Run succeeded" : "Run completed with errors"
+      bodyText = sections.join("\n")
+    }
+    overlay.innerHTML = `
+      <div class="workflow-board__code-panel">
+        <div class="workflow-board__code-header">
+          <strong></strong>
+          <button type="button" class="workflow-board__code-copy">Copy</button>
+          <button type="button" class="workflow-board__code-close">Close</button>
+        </div>
+        <pre class="workflow-board__code-body"></pre>
+      </div>
+    `
+    overlay.querySelector("strong")!.textContent = title
+    overlay.querySelector(".workflow-board__code-body")!.textContent = bodyText
+    overlay
+      .querySelector<HTMLButtonElement>(".workflow-board__code-copy")!
+      .addEventListener("click", () => {
+        void navigator.clipboard.writeText(bodyText)
       })
     overlay
       .querySelector<HTMLButtonElement>(".workflow-board__code-close")!
@@ -371,7 +523,7 @@ export function mountWorkflowBoard(
           mode: ctx.mode,
           onChange: handleChange,
           palette: WORKFLOW_PALETTE,
-          extraToolbarRight: exportButtonElement(handleExport),
+          extraToolbarRight: toolbarRightCluster(handleExport, handleRun, running),
         } as unknown as React.ComponentProps<typeof BoardCanvas>),
       )
     } catch (e) {
