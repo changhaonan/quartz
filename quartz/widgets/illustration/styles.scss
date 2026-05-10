@@ -1,10 +1,4 @@
 .illustration-board {
-  --ill-color-blue: #3b82f6;
-  --ill-color-green: #22c55e;
-  --ill-color-amber: #f59e0b;
-  --ill-color-red: #ef4444;
-  --ill-color-violet: #a855f7;
-  --ill-color-gray: #94a3b8;
   --ill-edge: color-mix(in srgb, var(--lightgray) 70%, var(--secondary));
 
   display: flex;
@@ -46,8 +40,8 @@
     font-size: 0.75rem;
   }
   &__status--saving { color: var(--secondary); }
-  &__status--saved  { color: var(--ill-color-green); }
-  &__status--error  { color: var(--ill-color-red); }
+  &__status--saved  { color: #3da787; }
+  &__status--error  { color: #d96a8c; }
 
   &__canvas {
     overflow: auto;
@@ -57,51 +51,49 @@
 
   svg { display: block; }
 
-  &__node-rect {
-    fill: var(--light);
-    stroke: var(--ill-color-gray);
-    stroke-width: 1.5;
-    transition: stroke-width 80ms ease, filter 80ms ease;
-  }
-  &__node--blue   .illustration-board__node-rect { stroke: var(--ill-color-blue); }
-  &__node--green  .illustration-board__node-rect { stroke: var(--ill-color-green); }
-  &__node--amber  .illustration-board__node-rect { stroke: var(--ill-color-amber); }
-  &__node--red    .illustration-board__node-rect { stroke: var(--ill-color-red); }
-  &__node--violet .illustration-board__node-rect { stroke: var(--ill-color-violet); }
-  &__node--gray   .illustration-board__node-rect { stroke: var(--ill-color-gray); }
-
   &__node[data-draggable="1"] { cursor: grab; }
   &__node[data-draggable="1"]:active { cursor: grabbing; }
-  &__node[data-draggable="1"]:hover .illustration-board__node-rect {
-    stroke-width: 2.2;
+  &__node[data-draggable="1"]:hover {
     filter: drop-shadow(0 1px 2px rgba(0,0,0,0.08));
   }
 
   &__node-title {
     font-size: 13px;
     font-weight: 600;
-    fill: var(--dark);
   }
   &__node-text {
-    font-size: 11px;
-    fill: var(--darkgray);
+    font-size: 11.5px;
   }
-  &__node-kind {
+  &__kicker {
     font-size: 9px;
-    fill: var(--gray);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+  &__lane-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  &__label-text {
+    font-size: 12px;
+    font-weight: 600;
   }
 
-  &__edge line {
-    stroke: var(--ill-edge);
-    stroke-width: 1.5;
+  &__edges path {
+    stroke-width: 1.6;
     fill: none;
   }
-  defs marker path { fill: var(--ill-edge); }
 
   &__edge-label {
     font-size: 10px;
-    fill: var(--gray);
+    font-weight: 600;
+  }
+  &__edge-label--yes,
+  &__edge-label--no {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 }
