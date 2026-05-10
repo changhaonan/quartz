@@ -1,5 +1,7 @@
 import { promises } from "fs"
 import path from "path"
+import { fileURLToPath } from "url"
+import { spawn as spawnChild } from "child_process"
 import esbuild from "esbuild"
 import { styleText } from "util"
 import { sassPlugin } from "esbuild-sass-plugin"
@@ -32,6 +34,13 @@ import {
   cacheFile,
   cwd,
 } from "./constants.js"
+import {
+  composeRunDriver,
+  isSafeWorkspaceId,
+} from "../widgets/workflow/runtime/run-driver.ts"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 /**
  * Resolve content directory path
@@ -362,6 +371,9 @@ export async function handleBuild(argv) {
       const writeUrlPath = (req.url || "").split("?")[0]
       if (req.method === "POST" && writeUrlPath === `${argv.baseDir || ""}/api/widget/write`) {
         return handleWidgetWrite(req, res, argv)
+      }
+      if (req.method === "POST" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/run`) {
+        return handleWorkflowRun(req, res, argv)
       }
 
       if (argv.baseDir && !req.url?.startsWith(argv.baseDir)) {
@@ -823,5 +835,160 @@ async function handleWidgetWrite(req, res, argv) {
   return widgetSendJson(res, 200, {
     ok: true,
     newVersion: String(newStat.mtimeMs),
+  })
+}
+
+// ─── Workflow run API ────────────────────────────────────────────────
+// Drives execution of a workflow board. Widget posts the codegen'd
+// source + workspace context, dev server writes a self-contained
+// run.ts file into .runtime/runs/<timestamp>/, spawns `npx tsx` on
+// it, captures stdout/stderr/result, persists artifacts, returns
+// the outcome. file-as-truth: every run leaves a directory you can
+// inspect afterwards (and that chokidar will rebuild the site for).
+
+async function handleWorkflowRun(req, res, argv) {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  let body
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+  } catch (e) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_json", message: e.message },
+    })
+  }
+
+  const workspaceId = String(body.workspaceId || "").trim()
+  const source = String(body.source || "")
+  const entryName = String(body.entryName || "workflow")
+  const entryParams = Array.isArray(body.entryParams) ? body.entryParams : []
+
+  if (!workspaceId || !isSafeWorkspaceId(workspaceId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_workspace", message: `invalid workspaceId: ${workspaceId}` },
+    })
+  }
+  if (!source) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "no_source", message: "source is required" },
+    })
+  }
+
+  const contentRoot = path.resolve(argv.directory)
+  const quartzRoot = path.resolve(__dirname, "..", "..")
+  const runtimePath = path.join(
+    quartzRoot,
+    "quartz",
+    "widgets",
+    "workflow",
+    "runtime",
+    "index.ts",
+  )
+
+  // Layout per-run artifacts under .runtime/runs/<iso-timestamp>/.
+  // chokidar is already watching content/, so these files trigger a
+  // rebuild — sidebar / explorer can show them.
+  const runId =
+    new Date().toISOString().replace(/[:.]/g, "-") +
+    "-" +
+    Math.random().toString(36).slice(2, 7)
+  const runDir = path.join(contentRoot, `${workspaceId}.runtime`, "runs", runId)
+  await promises.mkdir(runDir, { recursive: true })
+
+  const runScriptPath = path.join(runDir, "run.ts")
+  const argsPath = path.join(runDir, "args.json")
+  const resultPath = path.join(runDir, "result.json")
+  const stdoutPath = path.join(runDir, "stdout.log")
+  const stderrPath = path.join(runDir, "stderr.log")
+
+  const driverSource = composeRunDriver({
+    source,
+    runtimePath,
+    contentRoot,
+    workspaceId,
+    entryName,
+    argsPath,
+    resultPath,
+  })
+
+  try {
+    await promises.writeFile(runScriptPath, driverSource, "utf8")
+    await promises.writeFile(argsPath, JSON.stringify(entryParams, null, 2), "utf8")
+  } catch (e) {
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "write_error", message: e.message },
+    })
+  }
+
+  // Spawn `node` directly. Node 25 strips TS types natively, so we don't
+  // need a tsx prefix; this also avoids tsx-resolution failures when the
+  // process happens to be running from a directory without local
+  // node_modules. Inherit env so WORKFLOW_BRIDGE_URL and any agent
+  // secrets propagate.
+  const child = spawnChild(
+    "node",
+    [runScriptPath],
+    {
+      cwd: contentRoot,
+      env: { ...process.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  )
+
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString()
+  })
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString()
+  })
+
+  const timeoutMs = Number.isFinite(body.timeoutMs)
+    ? Math.max(1000, Math.min(3_600_000, body.timeoutMs))
+    : 5 * 60_000
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    try {
+      child.kill("SIGTERM")
+    } catch {}
+  }, timeoutMs)
+
+  const exitCode = await new Promise((resolve) => {
+    child.on("exit", (code) => resolve(code ?? 1))
+    child.on("error", () => resolve(1))
+  })
+  clearTimeout(timer)
+
+  try {
+    await promises.writeFile(stdoutPath, stdout, "utf8")
+    await promises.writeFile(stderrPath, stderr, "utf8")
+  } catch {}
+
+  let result = null
+  try {
+    const resultText = await promises.readFile(resultPath, "utf8")
+    result = JSON.parse(resultText)
+  } catch {
+    // result file might not exist if tsx failed before reaching __main()
+  }
+
+  // Tail the long buffers so the JSON response stays sane. The full
+  // text lives in the log files on disk.
+  const tail = (s, n) => (s.length > n ? s.slice(s.length - n) : s)
+  return widgetSendJson(res, exitCode === 0 ? 200 : 500, {
+    ok: exitCode === 0,
+    runId,
+    runDir: path.relative(contentRoot, runDir),
+    exitCode,
+    timedOut,
+    stdout: tail(stdout, 16_000),
+    stderr: tail(stderr, 16_000),
+    result,
   })
 }
