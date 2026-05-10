@@ -119,6 +119,67 @@ function newNodeId() {
   return `illustration-node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+// Field-by-field equality for the slice of a React Flow node that affects
+// rendering. Anything else (extent, parentId, etc.) is recomputed
+// deterministically from the same inputs, so it's safe to compare just
+// these — if they match, the entire object can be reused.
+function flowNodeEqual(a, b) {
+  if (a.id !== b.id) return false
+  if (a.position.x !== b.position.x || a.position.y !== b.position.y) return false
+  if (a.width !== b.width || a.height !== b.height) return false
+  if (a.draggable !== b.draggable) return false
+  if (a.parentId !== b.parentId) return false
+  const ad = a.data, bd = b.data
+  return (
+    ad.illustrationType === bd.illustrationType &&
+    ad.color === bd.color &&
+    ad.text === bd.text &&
+    ad.width === bd.width &&
+    ad.height === bd.height &&
+    ad.containerId === bd.containerId &&
+    ad.ioPairs === bd.ioPairs &&
+    ad.loopCount === bd.loopCount &&
+    ad.graphEditable === bd.graphEditable
+  )
+}
+
+function flowEdgeEqual(a, b) {
+  if (a.id !== b.id) return false
+  if (a.source !== b.source || a.target !== b.target) return false
+  if (a.sourceHandle !== b.sourceHandle || a.targetHandle !== b.targetHandle) return false
+  if (a.label !== b.label) return false
+  if ((a.style?.stroke ?? "") !== (b.style?.stroke ?? "")) return false
+  return true
+}
+
+// Returns either `cur` (no change at all — caller bails) or a new array
+// built from `next` but reusing each unchanged entry's identity.
+function reconcileNodes(cur, next) {
+  if (cur.length !== next.length) return next
+  let anyChanged = false
+  const byId = new Map(cur.map((n) => [n.id, n]))
+  const merged = next.map((n) => {
+    const prev = byId.get(n.id)
+    if (prev && flowNodeEqual(prev, n)) return prev
+    anyChanged = true
+    return n
+  })
+  return anyChanged ? merged : cur
+}
+
+function reconcileEdges(cur, next) {
+  if (cur.length !== next.length) return next
+  let anyChanged = false
+  const byId = new Map(cur.map((e) => [e.id, e]))
+  const merged = next.map((e) => {
+    const prev = byId.get(e.id)
+    if (prev && flowEdgeEqual(prev, e)) return prev
+    anyChanged = true
+    return e
+  })
+  return anyChanged ? merged : cur
+}
+
 function makeNode(palette, position) {
   // palette.visual is set by widgets whose `type` is non-visual (workflow:
   // type=call/llm/branch/...). Fall back to palette.type for plain
@@ -186,14 +247,22 @@ export default function BoardCanvas({
 
   // Reproject ONLY when external data changes (e.g., after a save committed
   // upstream). Selection state and `editable` are deliberately not in the
-  // dep list — they're handled by the targeted selection effect below, which
-  // mutates `selected` in place without rebuilding the node objects. Without
-  // this split, clicking a node mid-drag fired this effect, wiped React
-  // Flow's in-progress drag position, and produced the high-frequency
-  // canvas flicker the user reported.
+  // dep list — they're handled by the targeted selection effect below.
+  //
+  // Identity-stable reconciler: for each node in the new projection, look
+  // up the corresponding existing node in our state. If every visible
+  // field is identical, reuse the existing object so React Flow sees the
+  // same reference and skips the per-node re-render. The "refresh on
+  // drag-stop" complaint came from rebuilding every node object on every
+  // patch round-trip — even when positions matched what React Flow's
+  // internal drag handler had already written. With this reconciler, a
+  // pure drag-stop produces a node array that is structurally identical
+  // to current state and we bail out without setNodes.
   useEffect(() => {
-    setNodes(toFlowNodes(data.nodes, editable, selectedNodeId, indexes.childrenByContainer))
-    setEdges(toFlowEdges(data.edges, selectedEdgeId))
+    const projectedNodes = toFlowNodes(data.nodes, editable, selectedNodeId, indexes.childrenByContainer)
+    const projectedEdges = toFlowEdges(data.edges, selectedEdgeId)
+    setNodes((cur) => reconcileNodes(cur, projectedNodes))
+    setEdges((cur) => reconcileEdges(cur, projectedEdges))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.nodes, data.edges, editable, indexes])
 
