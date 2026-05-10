@@ -51,7 +51,11 @@ function normalizeHeight(value: string | undefined): string | null {
   return null
 }
 
-function renderPlaceholder(attrs: WidgetAttrs, errorMessage?: string): string {
+function renderPlaceholder(
+  attrs: WidgetAttrs,
+  resolvedPath: string,
+  errorMessage?: string,
+): string {
   if (errorMessage) {
     return `<div class="quartz-widget__error">${escapeHtml(errorMessage)}</div>`
   }
@@ -59,7 +63,6 @@ function renderPlaceholder(attrs: WidgetAttrs, errorMessage?: string): string {
   const src = attrs.src!
   const mode = attrs.mode === "live" ? "live" : "readonly"
   const version = attrs.version ?? ""
-  const widgetPath = attrs.path ?? src
   const heightAttr = normalizeHeight(attrs.height)
   const styleAttr = heightAttr ? ` style="min-height:${escapeHtml(heightAttr)}"` : ""
   const versionAttr = version ? ` data-widget-version="${escapeHtml(version)}"` : ""
@@ -71,11 +74,24 @@ function renderPlaceholder(attrs: WidgetAttrs, errorMessage?: string): string {
     `<div class="quartz-widget" ` +
     `data-widget-type="${escapeHtml(type)}" ` +
     `data-widget-src="${escapeHtml(src)}" ` +
-    `data-widget-path="${escapeHtml(widgetPath)}" ` +
+    `data-widget-path="${escapeHtml(resolvedPath)}" ` +
     `data-widget-mode="${escapeHtml(mode)}"` +
     `${versionAttr}${workspaceAttr}${styleAttr}` +
     `></div>`
   )
+}
+
+function contentRelativePath(
+  src: string,
+  mdPath: string,
+  contentRoot: string,
+): string {
+  if (/^https?:\/\//.test(src)) return src
+  const abs = src.startsWith("/")
+    ? path.resolve(contentRoot, "." + src)
+    : path.resolve(path.dirname(mdPath), src)
+  const rel = path.relative(contentRoot, abs)
+  return rel.split(path.sep).join("/")
 }
 
 function resolveDataFile(srcAttr: string, mdPath: string): string | null {
@@ -151,7 +167,8 @@ export const Widget: QuartzTransformerPlugin<Partial<WidgetOptions>> = (userOpts
   const opts = { ...defaultOpts, ...userOpts } as WidgetOptions
   return {
     name: "Widget",
-    markdownPlugins() {
+    markdownPlugins(ctx) {
+      const contentRoot = path.resolve(ctx.argv.directory)
       return [
         () => {
           return (tree: Root, file) => {
@@ -167,12 +184,19 @@ export const Widget: QuartzTransformerPlugin<Partial<WidgetOptions>> = (userOpts
                   type: "html",
                   value: renderPlaceholder(
                     {},
+                    "",
                     "Widget block missing required `type` or `src`.",
                   ),
                 }
                 parent.children.splice(index, 1, html)
                 return
               }
+
+              const resolvedPath = attrs.path
+                ? attrs.path
+                : mdPath
+                  ? contentRelativePath(attrs.src, mdPath, contentRoot)
+                  : attrs.src
 
               if (mdPath) {
                 const result = validateData(
@@ -186,7 +210,7 @@ export const Widget: QuartzTransformerPlugin<Partial<WidgetOptions>> = (userOpts
                   console.warn(`[widget] ${result.message}`)
                   const html: Html = {
                     type: "html",
-                    value: renderPlaceholder(attrs, result.message),
+                    value: renderPlaceholder(attrs, resolvedPath, result.message),
                   }
                   parent.children.splice(index, 1, html)
                   return
@@ -195,7 +219,7 @@ export const Widget: QuartzTransformerPlugin<Partial<WidgetOptions>> = (userOpts
 
               const html: Html = {
                 type: "html",
-                value: renderPlaceholder(attrs),
+                value: renderPlaceholder(attrs, resolvedPath),
               }
               parent.children.splice(index, 1, html)
             })

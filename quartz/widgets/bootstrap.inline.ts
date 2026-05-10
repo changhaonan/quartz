@@ -67,25 +67,31 @@ async function loadAndMount(el: HTMLElement) {
 
   setLoading(el)
 
-  let raw: unknown
+  const fetchData = widget.fetchData !== false
+  let parsedData: unknown = null
   let version: string | null = null
-  try {
-    const fetched = await fetchWidgetData(src)
-    raw = fetched.data
-    version = fetched.version
-  } catch (e) {
-    setError(el, `Failed to load data: ${(e as Error).message}`)
-    return
-  }
 
-  const parseResult = widget.schema.safeParse(raw)
-  if (!parseResult.success) {
-    const issues = parseResult.error.issues
-      .slice(0, 3)
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ")
-    setError(el, `Schema validation failed: ${issues}`)
-    return
+  if (fetchData) {
+    let raw: unknown
+    try {
+      const fetched = await fetchWidgetData(src)
+      raw = fetched.data
+      version = fetched.version
+    } catch (e) {
+      setError(el, `Failed to load data: ${(e as Error).message}`)
+      return
+    }
+
+    const parseResult = widget.schema.safeParse(raw)
+    if (!parseResult.success) {
+      const issues = parseResult.error.issues
+        .slice(0, 3)
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ")
+      setError(el, `Schema validation failed: ${issues}`)
+      return
+    }
+    parsedData = parseResult.data
   }
 
   const mode = (el.getAttribute(MODE_ATTR) ?? "readonly") as WidgetMode
@@ -116,7 +122,8 @@ async function loadAndMount(el: HTMLElement) {
 
   const ctx: WidgetMountContext<unknown> = {
     el,
-    data: parseResult.data,
+    data: parsedData,
+    path: widgetPath,
     mode,
     capabilities,
     write: async (req) => {

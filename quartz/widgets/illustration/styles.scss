@@ -1,6 +1,4 @@
-.illustration-board {
-  --ill-edge: color-mix(in srgb, var(--lightgray) 70%, var(--secondary));
-
+.illustration-board-frame {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--lightgray);
@@ -8,92 +6,24 @@
   background: var(--light);
   overflow: hidden;
   margin: 0.7rem 0 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
-  &__chrome {
+  &__status {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.4rem 0.7rem;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.72rem;
+    color: var(--gray);
     background: color-mix(in srgb, var(--lightgray) 30%, transparent);
     border-bottom: 1px solid var(--lightgray);
-    font-size: 0.78rem;
+    font-family: var(--codeFont, monospace);
   }
 
-  &__title {
-    font-weight: 600;
-    color: var(--darkgray);
-  }
-
-  &__mode {
-    text-transform: uppercase;
-    font-size: 0.65rem;
-    letter-spacing: 0.05em;
-    padding: 0.1rem 0.5rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--secondary) 15%, transparent);
+  &[data-mode="live"] &__status {
     color: var(--secondary);
   }
 
-  &__status {
-    margin-left: auto;
-    color: var(--gray);
-    font-size: 0.75rem;
-  }
-  &__status--saving { color: var(--secondary); }
-  &__status--saved  { color: #3da787; }
-  &__status--error  { color: #d96a8c; }
-
-  &__canvas {
-    overflow: auto;
-    max-height: 70vh;
-    background: var(--light);
-  }
-
-  svg { display: block; }
-
-  &__node[data-draggable="1"] { cursor: grab; }
-  &__node[data-draggable="1"]:active { cursor: grabbing; }
-  &__node[data-draggable="1"]:hover {
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.08));
-  }
-
-  &__node-title {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  &__node-text {
-    font-size: 11.5px;
-  }
-  &__kicker {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-  }
-  &__lane-title {
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  &__label-text {
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  &__edges path {
-    stroke-width: 1.6;
-    fill: none;
-  }
-
-  &__edge-label {
-    font-size: 10px;
-    font-weight: 600;
-  }
-  &__edge-label--yes,
-  &__edge-label--no {
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+  iframe {
+    color-scheme: light;
   }
 }

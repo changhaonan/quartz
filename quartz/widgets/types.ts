@@ -37,7 +37,15 @@ export interface WidgetWriteCall {
 
 export interface WidgetMountContext<T> {
   el: HTMLElement
-  data: T
+  /**
+   * Parsed + validated data, or null when the widget opted out of
+   * runtime fetching via `Widget.fetchData = false` (e.g. iframe-based
+   * widgets that defer rendering — and therefore data loading — to a
+   * downstream service).
+   */
+  data: T | null
+  /** Workspace-relative path of the widget's data file. */
+  path: string
   mode: WidgetMode
   capabilities: WidgetCapabilities
   write: (req: WidgetWriteCall) => Promise<WidgetWriteResult>
@@ -50,6 +58,14 @@ export interface Widget<T = unknown> {
   type: string
   schemaVersion: number
   schema: ZodType<T>
+  /**
+   * When true (default), the bootstrap fetches the data file, validates
+   * it against `schema`, and passes it to `mount` as `ctx.data`.
+   * Set to false for widgets that delegate rendering (and data loading)
+   * to a downstream service such as the bridge — schema is still used
+   * for build-time validation but no runtime fetch happens.
+   */
+  fetchData?: boolean
   mount(ctx: WidgetMountContext<T>): WidgetDispose | void
 }
 
