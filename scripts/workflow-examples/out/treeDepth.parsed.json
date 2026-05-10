@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "imports": [
+    "import { addOne, isNull, max } from \"./treeDepthHelpers\""
+  ],
+  "entryParams": [
+    "node"
+  ],
+  "nodes": [
+    {
+      "id": "branch-1",
+      "kind": "branch",
+      "visual": "decision",
+      "op": "isNull(node)",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 80,
+      "y": 80,
+      "text": "",
+      "color": "rose",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "return-2",
+      "kind": "return",
+      "visual": "label",
+      "op": "0",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 400,
+      "y": 80,
+      "text": "",
+      "color": "mint",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "treeDepth-3",
+      "kind": "llm",
+      "visual": "process",
+      "op": "treeDepth",
+      "params": {
+        "_args.0": "node.left",
+        "_await": true
+      },
+      "outputs": [
+        "leftDepth"
+      ],
+      "containerId": "",
+      "x": 720,
+      "y": 80,
+      "text": "",
+      "color": "violet",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "treeDepth-4",
+      "kind": "llm",
+      "visual": "process",
+      "op": "treeDepth",
+      "params": {
+        "_args.0": "node.right",
+        "_await": true
+      },
+      "outputs": [
+        "rightDepth"
+      ],
+      "containerId": "",
+      "x": 1040,
+      "y": 80,
+      "text": "",
+      "color": "violet",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "max-5",
+      "kind": "call",
+      "visual": "process",
+      "op": "max",
+      "params": {
+        "_args.0": "leftDepth",
+        "_args.1": "rightDepth"
+      },
+      "outputs": [
+        "both"
+      ],
+      "containerId": "",
+      "x": 1360,
+      "y": 80,
+      "text": "",
+      "color": "cyan",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "addOne-6",
+      "kind": "call",
+      "visual": "process",
+      "op": "addOne",
+      "params": {
+        "_args.0": "both"
+      },
+      "outputs": [
+        "result"
+      ],
+      "containerId": "",
+      "x": 1680,
+      "y": 80,
+      "text": "",
+      "color": "cyan",
+      "ioPairs": 1,
+      "loopCount": 1
+    },
+    {
+      "id": "return-7",
+      "kind": "return",
+      "visual": "label",
+      "op": "",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 80,
+      "y": 280,
+      "text": "",
+      "color": "mint",
+      "ioPairs": 1,
+      "loopCount": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-1",
+      "type": "arrow",
+      "source": "branch-1",
+      "target": "return-2",
+      "sourceHandle": "source-top",
+      "targetHandle": "",
+      "varName": "",
+      "label": "",
+      "color": "mint",
+      "route": null
+    },
+    {
+      "id": "e-2",
+      "type": "arrow",
+      "source": "treeDepth-3",
+      "target": "max-5",
+      "sourceHandle": "",
+      "targetHandle": "",
+      "varName": "leftDepth",
+      "label": "",
+      "color": "slate",
+      "route": null
+    },
+    {
+      "id": "e-3",
+      "type": "arrow",
+      "source": "treeDepth-4",
+      "target": "max-5",
+      "sourceHandle": "",
+      "targetHandle": "",
+      "varName": "rightDepth",
+      "label": "",
+      "color": "slate",
+      "route": null
+    },
+    {
+      "id": "e-4",
+      "type": "arrow",
+      "source": "max-5",
+      "target": "addOne-6",
+      "sourceHandle": "",
+      "targetHandle": "",
+      "varName": "both",
+      "label": "",
+      "color": "slate",
+      "route": null
+    },
+    {
+      "id": "e-5",
+      "type": "arrow",
+      "source": "addOne-6",
+      "target": "return-7",
+      "sourceHandle": "",
+      "targetHandle": "",
+      "varName": "result",
+      "label": "",
+      "color": "slate",
+      "route": null
+    }
+  ]
+}

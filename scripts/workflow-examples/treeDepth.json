@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "imports": ["import { addOne, isNull, max } from \"./treeDepthHelpers\""],
+  "entryParams": ["node"],
+  "nodes": [
+    {
+      "id": "isnull",
+      "kind": "branch",
+      "visual": "decision",
+      "op": "isNull(node)",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 80, "y": 80, "width": 200, "height": 200,
+      "text": "node === null?", "color": "rose",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "ret-zero",
+      "kind": "return",
+      "visual": "label",
+      "op": "0",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 380, "y": 40, "width": 200, "height": 80,
+      "text": "return 0", "color": "mint",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "depth-left",
+      "kind": "llm",
+      "visual": "process",
+      "op": "treeDepth",
+      "params": { "_args.0": "node.left", "_await": true },
+      "outputs": ["leftDepth"],
+      "containerId": "",
+      "x": 380, "y": 240, "width": 240, "height": 120,
+      "text": "treeDepth(node.left)", "color": "violet",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "depth-right",
+      "kind": "llm",
+      "visual": "process",
+      "op": "treeDepth",
+      "params": { "_args.0": "node.right", "_await": true },
+      "outputs": ["rightDepth"],
+      "containerId": "",
+      "x": 680, "y": 240, "width": 240, "height": 120,
+      "text": "treeDepth(node.right)", "color": "violet",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "both",
+      "kind": "call",
+      "visual": "process",
+      "op": "max",
+      "params": { "_args.0": "leftDepth", "_args.1": "rightDepth" },
+      "outputs": ["both"],
+      "containerId": "",
+      "x": 980, "y": 240, "width": 220, "height": 120,
+      "text": "max(left, right)", "color": "cyan",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "plus-one",
+      "kind": "call",
+      "visual": "process",
+      "op": "addOne",
+      "params": { "_args.0": "both" },
+      "outputs": ["result"],
+      "containerId": "",
+      "x": 1240, "y": 240, "width": 220, "height": 120,
+      "text": "+ 1", "color": "cyan",
+      "ioPairs": 1, "loopCount": 1
+    },
+    {
+      "id": "ret",
+      "kind": "return",
+      "visual": "label",
+      "op": "",
+      "params": {},
+      "outputs": [],
+      "containerId": "",
+      "x": 1500, "y": 240, "width": 200, "height": 80,
+      "text": "return result", "color": "mint",
+      "ioPairs": 1, "loopCount": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-yes-zero", "type": "arrow",
+      "source": "isnull", "target": "ret-zero",
+      "sourceHandle": "source-top", "targetHandle": "",
+      "varName": "", "label": "", "color": "mint", "route": null
+    },
+    {
+      "id": "e-left-both", "type": "arrow",
+      "source": "depth-left", "target": "both",
+      "sourceHandle": "", "targetHandle": "",
+      "varName": "leftDepth", "label": "", "color": "slate", "route": null
+    },
+    {
+      "id": "e-right-both", "type": "arrow",
+      "source": "depth-right", "target": "both",
+      "sourceHandle": "", "targetHandle": "",
+      "varName": "rightDepth", "label": "", "color": "slate", "route": null
+    },
+    {
+      "id": "e-both-plus", "type": "arrow",
+      "source": "both", "target": "plus-one",
+      "sourceHandle": "", "targetHandle": "",
+      "varName": "both", "label": "", "color": "slate", "route": null
+    },
+    {
+      "id": "e-plus-ret", "type": "arrow",
+      "source": "plus-one", "target": "ret",
+      "sourceHandle": "", "targetHandle": "",
+      "varName": "result", "label": "", "color": "slate", "route": null
+    }
+  ]
+}
