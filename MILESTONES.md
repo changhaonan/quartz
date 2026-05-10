@@ -97,7 +97,7 @@ Current proof:
 
 ### M6: Write coordination and rebuild service
 
-Status: in progress
+Status: done
 
 - Add a bridge-backed AI workspace PTY region before write coordination:
   - `Start PTY` creates a real bridge session through `POST /api/sessions`.
@@ -170,6 +170,39 @@ Status: next
 - Let the sidebar create workspace files and sibling `.runtime` folders.
 - Let the sidebar append run summaries under `runs/`.
 - Keep destructive runtime actions routed through bridge permission checks.
+
+### M8: File-scoped widget subsystem
+
+Status: in progress
+
+Goal: replace per-file iframe embeds (illustration board, blueprint board,
+evaluation board, future widgets) with a Quartz-native widget framework
+where data lives in `.runtime/*.json` (Git is source of truth) and
+mutations flow through the M6 bridge write API.
+
+- Add `quartz/widgets/` as a first-class subsystem alongside
+  `quartz/components/` and `quartz/plugins/`. Discipline: widgets must
+  not import from `quartz/components/` or `quartz/plugins/`.
+- Add a `widget` Markdown transformer recognising fenced ` ```widget `
+  blocks (`type`, `src`, `mode`, `height`). It emits a placeholder
+  `<div data-widget-type=...>` and the bootstrap pulls the renderer
+  from a client-side registry.
+- Add a `FileRuntime` transformer that detects sibling `.runtime/`
+  folders for each Markdown file and exposes the manifest list as
+  `fileData.runtime`. Consumed by AiSidebar, widgets, and future
+  graph/explorer enrichments.
+- Add build-time schema validation: each widget exports a zod schema;
+  the build resolves widget data files and validates them before
+  publishing. Bad data fails or warns the build.
+- Read path: pure HTTP fetch of the data file (works without the
+  bridge). Write path: JSON Patch + `ifVersion` through the M6
+  bridge content write API. Live SSE updates are deferred.
+- First migration target: `boards/illustration-board.md` — moves from
+  `bridge-frame` iframe to a native widget reading
+  `.runtime/board.json` (nodes/edges illustration canvas).
+- `BridgeFrame` keeps responsibility for cross-process **UI** embeds
+  (live PTY, full bridge dashboard pages). Widgets cover cross-process
+  **data** embeds.
 
 ## Hard rules
 
