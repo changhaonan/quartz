@@ -171,7 +171,27 @@ export default function IllustrationCanvas({ data, mode, onNodeMove }) {
       edgeTypes={edgeTypes}
       connectionLineComponent={CanvasConnectionLine}
       onNodesChange={onNodesChange}
-      onNodeDragStop={onNodeDragStop}
+      onNodeDragStop={(e, n) => {
+        if (typeof window !== 'undefined') {
+          ;(window.__rfEvents ||= []).push({ t: performance.now() | 0, kind: 'dragstop', id: n.id, x: Math.round(n.position.x), y: Math.round(n.position.y) })
+        }
+        onNodeDragStop(e, n)
+      }}
+      onNodeDragStart={(_e, n) => {
+        if (typeof window !== 'undefined') {
+          ;(window.__rfEvents ||= []).push({ t: performance.now() | 0, kind: 'dragstart', id: n.id })
+        }
+      }}
+      onNodeDrag={(_e, n) => {
+        if (typeof window !== 'undefined') {
+          ;(window.__rfEvents ||= []).push({ t: performance.now() | 0, kind: 'drag', id: n.id, x: Math.round(n.position.x), y: Math.round(n.position.y) })
+        }
+      }}
+      onNodeClick={(_e, n) => {
+        if (typeof window !== 'undefined') {
+          ;(window.__rfEvents ||= []).push({ t: performance.now() | 0, kind: 'click', id: n.id })
+        }
+      }}
       nodesDraggable={editable}
       nodesConnectable={false}
       elementsSelectable

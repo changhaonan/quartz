@@ -2,7 +2,8 @@ import { chromium } from "playwright"
 
 const url = process.argv[2] || "http://localhost:8080/boards/illustration-board"
 
-const browser = await chromium.launch({ headless: true })
+const headless = process.env.PROBE_HEADLESS !== "0"
+const browser = await chromium.launch({ headless })
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 } })
 const page = await ctx.newPage()
 
@@ -102,25 +103,82 @@ await page.evaluate(() => {
 
 let dragResult = "skipped (no nodes)"
 if (flowState.found && flowState.nodes.length > 0) {
-  console.log(`\n=== first save via debug hook ===`)
-  networkEvents.length = 0
-  consoleEvents.length = 0
-  const firstSave = await page.evaluate(() => {
-    if (typeof window.__illustrationDebugMove !== "function") return { ok: false, reason: "hook not present" }
-    return { ok: window.__illustrationDebugMove(0, 200, 200) }
-  })
-  console.log(JSON.stringify(firstSave))
-  await page.waitForTimeout(2500)
-
-  console.log(`\n=== second save via debug hook ===`)
-  const secondSave = await page.evaluate(() => {
-    if (typeof window.__illustrationDebugMove !== "function") return { ok: false, reason: "hook not present" }
-    return { ok: window.__illustrationDebugMove(0, 250, 250) }
-  })
-  console.log(JSON.stringify(secondSave))
-  await page.waitForTimeout(2500)
-  dragResult = "two saves via debug hook"
+  // Skip the hook-based saves: we now drive drag through real pointer events,
+  // matching what a user does. The hook stays available for emergency
+  // diagnosis but the primary flow exercises React Flow's drag machinery.
+  dragResult = "real-pointer drag (see above)"
 }
+
+// Try a real user-style drag via Playwright's hover + mouse events.
+// Scroll the canvas into view first, then find the first non-decorative
+// node and drag it 60px right.
+console.log("\n=== real-user drag attempt ===")
+await page.evaluate(() => {
+  document.querySelector(".react-flow")?.scrollIntoView({ block: "center" })
+})
+await page.waitForTimeout(300)
+const dragOutcome = await page.evaluate(() => {
+  const node = document.querySelector('.react-flow__node[data-id="goal"]')
+  if (!node) return { error: "no node" }
+  const r = node.getBoundingClientRect()
+  return { x: r.x, y: r.y, w: r.width, h: r.height }
+})
+console.log("node rect:", JSON.stringify(dragOutcome))
+if (dragOutcome.x !== undefined) {
+  await page.mouse.move(dragOutcome.x + dragOutcome.w / 2, dragOutcome.y + dragOutcome.h / 2)
+  await page.mouse.down()
+  await page.waitForTimeout(50)
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(
+      dragOutcome.x + dragOutcome.w / 2 + i * 5,
+      dragOutcome.y + dragOutcome.h / 2 + i * 4,
+    )
+    await page.waitForTimeout(20)
+  }
+  await page.mouse.up()
+  await page.waitForTimeout(2000)
+}
+const rfEvents = await page.evaluate(() => window.__rfEvents || [])
+console.log("react-flow events fired:")
+for (const e of rfEvents) console.log(`  +${e.t}ms ${JSON.stringify(e)}`)
+
+console.log("\n=== drag diagnostics ===")
+const dragDiag = await page.evaluate(() => {
+  const node = document.querySelector(".react-flow__node")
+  if (!node) return { error: "no react-flow node" }
+  const style = getComputedStyle(node)
+  // Check what's at the center of the node — does anything cover it?
+  const rect = node.getBoundingClientRect()
+  const cx = rect.x + rect.width / 2
+  const cy = rect.y + rect.height / 2
+  const stack = []
+  let target = document.elementFromPoint(cx, cy)
+  while (target && stack.length < 5) {
+    stack.push({
+      tag: target.tagName,
+      class: target.className?.toString?.().slice(0, 80),
+      pointerEvents: getComputedStyle(target).pointerEvents,
+    })
+    target = target.parentElement
+  }
+  // Inspect React Flow's inner draggable expectation
+  const reactFlowNode = node
+  const handle = reactFlowNode.querySelector(".canvas-illustration-node")
+  return {
+    nodeRect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+    nodeClass: node.className?.toString?.(),
+    nodePointerEvents: style.pointerEvents,
+    nodeUserSelect: style.userSelect,
+    nodeTouchAction: style.touchAction,
+    nodeAttrs: {
+      "data-id": node.getAttribute("data-id"),
+      "draggable": node.getAttribute("draggable"),
+    },
+    elementsAtCenter: stack,
+    hasInnerHandle: !!handle,
+  }
+})
+console.log(JSON.stringify(dragDiag, null, 2))
 
 // Original drag-via-pointer-events path is left below for reference but
 // no longer drives the test (React Flow's drag isn't reliably triggered
