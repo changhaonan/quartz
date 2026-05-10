@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource react */
 import React, { useMemo, useState, useCallback, useEffect } from 'react'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import { nodeTypes, CanvasSmoothEdge, CanvasConnectionLine } from './components.jsx'

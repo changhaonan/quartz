@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic @jsxImportSource react */
 // Ported from claude_pty/client/src/blueprint/canvas/components.jsx with
 // ticket/blueprint pieces removed (TicketNode, displayTicketClass,
 // ChildTicketModal, TicketDetailDrawer, CanvasTicketSidebar). Keep this
