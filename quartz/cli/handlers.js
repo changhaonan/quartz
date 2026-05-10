@@ -498,16 +498,17 @@ export async function handleBuild(argv) {
       "**/*.scss",
       "package.json",
     ])
-    // Workflow runtime artifacts (per-run logs + messages between
-    // agents) churn rapidly during a live `ask` or `run` and should never
-    // trigger a full rebuild — they're not authoring content. Filtering
-    // at the event handler level (rather than via chokidar's `ignored`
-    // option) is more portable across chokidar versions and makes the
-    // skip behavior trivially auditable via a console.log.
+    // Everything under any *.runtime/ folder is widget machine state
+    // (data files the widget fetches at runtime, per-run logs, agent
+    // message handoffs, traces, evidence). None of it is authored
+    // content. Critically, the widget's own data file (workflow.json,
+    // board.json) is updated on every drag-stop / edge create / etc.;
+    // without this filter, every interaction inside a widget reloads
+    // the entire SPA.
     const isRuntimeArtifact = (fp) => {
       if (!fp) return false
       const norm = String(fp).replace(/\\/g, "/")
-      return /\.runtime\/(runs|messages|traces|evidence)(\/|$)/.test(norm)
+      return /(^|\/)[^/]+\.runtime(\/|$)/.test(norm)
     }
     const maybeBuild = (eventPath) => {
       if (isRuntimeArtifact(eventPath)) return
