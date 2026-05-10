@@ -20,6 +20,12 @@ const edgeTypes = {
   canvasSmoothEdge: CanvasSmoothEdge,
 }
 
+// Module-level stable identity. Passing `proOptions={{ ... }}` inline would
+// allocate a fresh object every render and tickle React Flow's prop-change
+// detection, which (in v12) re-evaluates viewport bookkeeping. Pin it once.
+const PRO_OPTIONS = { hideAttribution: true }
+const DEFAULT_FIT_VIEW_OPTIONS = { padding: 0.15, duration: 0 }
+
 function nodeSize(node) {
   const meta = ILLUSTRATION_NODE_TYPE_META[node.type] || ILLUSTRATION_NODE_TYPE_META.note
   return {
@@ -164,7 +170,9 @@ export default function BoardCanvas({
   const [reactFlowInstance, setReactFlowInstance] = useState(null)
   const [layoutBusy, setLayoutBusy] = useState(false)
 
-  const indexes = useMemo(() => buildChildIndexes(data.nodes), [data])
+  // Pin the children index to data.nodes (not the whole data object) so it
+  // doesn't churn just because edges changed.
+  const indexes = useMemo(() => buildChildIndexes(data.nodes), [data.nodes])
 
   // React Flow's nodes/edges state is local — drives interactions like drag,
   // selection, hover. The authoritative state is `data` from props; on each
@@ -172,10 +180,43 @@ export default function BoardCanvas({
   const [nodes, setNodes] = useState(() => toFlowNodes(data.nodes, editable, '', indexes.childrenByContainer))
   const [edges, setEdges] = useState(() => toFlowEdges(data.edges, ''))
 
+  // Reproject ONLY when external data changes (e.g., after a save committed
+  // upstream). Selection state and `editable` are deliberately not in the
+  // dep list — they're handled by the targeted selection effect below, which
+  // mutates `selected` in place without rebuilding the node objects. Without
+  // this split, clicking a node mid-drag fired this effect, wiped React
+  // Flow's in-progress drag position, and produced the high-frequency
+  // canvas flicker the user reported.
   useEffect(() => {
     setNodes(toFlowNodes(data.nodes, editable, selectedNodeId, indexes.childrenByContainer))
     setEdges(toFlowEdges(data.edges, selectedEdgeId))
-  }, [data, editable, selectedNodeId, selectedEdgeId, indexes])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.nodes, data.edges, editable, indexes])
+
+  // Selection-only updates: flip the `selected` flag (and the corresponding
+  // `data.isSelected` consumed by the per-type node renderer) without
+  // rebuilding the node array. Cheap, keeps React Flow's internal node
+  // positions intact during a drag.
+  useEffect(() => {
+    setNodes((cur) =>
+      cur.map((n) => {
+        const isSel = n.id === selectedNodeId
+        if (n.selected === isSel && n.data.isSelected === isSel) return n
+        return { ...n, selected: isSel, data: { ...n.data, isSelected: isSel } }
+      }),
+    )
+    setEdges((cur) =>
+      cur.map((e) => {
+        const isSel = e.id === selectedEdgeId
+        if (e.selected === isSel) return e
+        return {
+          ...e,
+          selected: isSel,
+          style: { ...e.style, strokeWidth: isSel ? 2.6 : 1.6 },
+        }
+      }),
+    )
+  }, [selectedNodeId, selectedEdgeId])
 
   const onNodesChange = useCallback((changes) => {
     setNodes((cur) => applyNodeChanges(changes, cur))
@@ -448,7 +489,8 @@ export default function BoardCanvas({
         panOnDrag
         zoomOnScroll
         fitView
-        proOptions={{ hideAttribution: true }}
+        fitViewOptions={DEFAULT_FIT_VIEW_OPTIONS}
+        proOptions={PRO_OPTIONS}
       >
         <Background gap={24} size={1} />
         <Controls showInteractive={false} />
