@@ -245,12 +245,7 @@ function renderNode(
       return `${indent}return undefined`
     }
     case "branch": {
-      // Predicate priority:
-      //   1. node.op when set — the user wrote an explicit predicate
-      //      (e.g. "node === null" or "val < node.val").
-      //   2. incoming edge varName when op is empty — the predicate is
-      //      whatever the incoming flow brought in.
-      //   3. fall back to "true" so generated code at least parses.
+      // Predicate priority: node.op (explicit) > incoming varName > "true".
       const incoming = ctx.incomingByNode.get(node.id) ?? []
       const cond = node.op
         ? node.op
@@ -260,10 +255,17 @@ function renderNode(
       const out = ctx.outgoingByNode.get(node.id) ?? []
       const yesEdge = out.find((e) => e.sourceHandle === "source-top")
       const noEdge = out.find((e) => e.sourceHandle === "source-bottom")
-      const yesBranch = yesEdge ? renderBranchBody(yesEdge.target, ctx, indent + "  ", args) : `${indent}  // (no yes branch)`
-      // Omit the else block entirely when there's no source-bottom edge — the
-      // original code may not have had an else, in which case the post-branch
-      // flow continues sequentially after the if-block.
+      // Orphan branch: no outgoing yes/no edges and no incoming flow either.
+      // Almost certainly a node the user added to the palette and never wired.
+      // Emit a comment instead of `if (true) { ... }` so the rest of the
+      // generated code stays syntactically clean.
+      if (!yesEdge && !noEdge && incoming.length === 0) {
+        return `${indent}// orphan branch: ${node.op || node.id}`
+      }
+      const yesBranch = yesEdge
+        ? renderBranchBody(yesEdge.target, ctx, indent + "  ", args)
+        : `${indent}  // (no yes branch)`
+      // Omit the else block entirely when there's no source-bottom edge.
       if (noEdge) {
         const noBranch = renderBranchBody(noEdge.target, ctx, indent + "  ", args)
         return `${indent}if (${cond}) {\n${yesBranch}\n${indent}} else {\n${noBranch}\n${indent}}`
@@ -279,6 +281,12 @@ function renderNode(
     }
     case "parallel": {
       const body = ctx.childrenByContainer.get(node.id) ?? []
+      // Orphan parallel with no children — emit a comment rather than
+      // `await Promise.all([])`, which is technically legal but signals
+      // unfinished authoring.
+      if (body.length === 0) {
+        return `${indent}// orphan parallel: ${node.op || node.id}`
+      }
       const branches = body
         .map((n) => `${indent}  (async () => { ${renderNode(n, ctx, "", args).trim()} })()`)
         .join(",\n")
@@ -392,15 +400,22 @@ export function generateWorkflowSource(data: WorkflowBoardData, options: { entry
   // doesn't already end in an explicit `return` (e.g. through a `return`
   // node or every branch arm returning).
   const trailingReturnNeeded = !bodyLines.split("\n").some((line) => /^\s*return\b/.test(line))
+  // Pick the last value-producing node that's actually visible at function
+  // scope: exclude anything inside a branch arm (consumedByBranch +
+  // consumedByBranchChain) since those declarations are scoped to the
+  // arm's block. Use nodeOutputVarName to match the variable name the
+  // declaration site uses — otherwise we end up returning a name that was
+  // never declared (e.g. `escalate_ticket` vs `ticket`).
   const lastNode = ordered
     .filter(
       (n) =>
         (n.kind === "call" || n.kind === "llm" || n.kind === "ask" || n.kind === "spawn") &&
-        !consumedByBranchChain.has(n.id),
+        !consumedByBranchChain.has(n.id) &&
+        !consumedByBranch.has(n.id),
     )
     .pop()
   const returnLine = trailingReturnNeeded && lastNode
-    ? `  return ${safeIdentifier(`${lastNode.id}_${lastNode.outputs[0] ?? "out"}`, lastNode.id)}\n`
+    ? `  return ${nodeOutputVarName(lastNode)}\n`
     : ""
 
   if (consumedByBranch.size > 0 && bodyLines.match(/^\s*$/)) {
