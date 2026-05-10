@@ -49,7 +49,11 @@ async function generateSocialImage(
     iconBase64,
   })
 
-  const svg = await satori(imageComponent, {
+  // satori is typed against React's ReactNode; Quartz uses preact for its
+  // SSG components. The runtime shape is compatible (h() VNodes), but the
+  // type signatures only align after @types/react is installed alongside
+  // @types/preact (which we need for the illustration widget).
+  const svg = await satori(imageComponent as unknown as Parameters<typeof satori>[0], {
     width,
     height,
     fonts,

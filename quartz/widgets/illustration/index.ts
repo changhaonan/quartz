@@ -12,11 +12,10 @@ const IllustrationBoardWidget: Widget<IllustrationBoardData> = {
   type: ILLUSTRATION_BOARD_TYPE,
   schemaVersion: ILLUSTRATION_BOARD_SCHEMA_VERSION,
   schema: IllustrationBoardSchema,
-  // Rendering is delegated to the bridge canvas via iframe. Build-time
-  // validation still runs against the schema (in the widget transformer);
-  // we just don't pre-fetch + parse the JSON in the browser since the
-  // bridge will do that itself.
-  fetchData: false,
+  // Native React island. The bootstrap fetches and validates the JSON
+  // before mount; the renderer hosts a React Flow canvas using the
+  // illustration node/edge components ported from claude_pty.
+  fetchData: true,
   mount: mountIllustrationBoard,
 }
 

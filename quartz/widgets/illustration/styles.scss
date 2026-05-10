@@ -1,3 +1,8 @@
+// Bridge canvas CSS, extracted from claude_pty/client/src/styles.css.
+// Keep close to upstream so future bridge tweaks land here as a copy.
+@use "./canvas-styles.css";
+@use "@xyflow/react/dist/style.css";
+
 .illustration-board-frame {
   display: flex;
   flex-direction: column;
@@ -8,9 +13,10 @@
   margin: 0.7rem 0 1rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
-  &__status {
+  &__chrome {
     display: flex;
     align-items: center;
+    gap: 0.6rem;
     padding: 0.35rem 0.7rem;
     font-size: 0.72rem;
     color: var(--gray);
@@ -19,11 +25,30 @@
     font-family: var(--codeFont, monospace);
   }
 
-  &[data-mode="live"] &__status {
+  &__mode {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--secondary) 15%, transparent);
     color: var(--secondary);
   }
 
-  iframe {
-    color-scheme: light;
+  &__status {
+    margin-left: auto;
+    color: var(--gray);
+  }
+  &__status--saving { color: var(--secondary); }
+  &__status--saved  { color: #3da787; }
+  &__status--error  { color: #d96a8c; }
+
+  &__canvas {
+    height: 600px;
+    background: var(--light);
+    position: relative;
+  }
+
+  .react-flow {
+    background: var(--light);
   }
 }
