@@ -2,7 +2,7 @@ import React from "react"
 import { createRoot, type Root } from "react-dom/client"
 import type { JsonPatchOp, WidgetMountContext } from "../types"
 import type { IllustrationBoardData } from "./schema"
-import IllustrationCanvas from "./canvas/IllustrationCanvas"
+import BoardCanvas from "../_canvas/BoardCanvas"
 
 function decodeJsonPointer(pointer: string): (string | number)[] {
   if (!pointer || pointer === "/") return []
@@ -178,11 +178,11 @@ export function mountIllustrationBoard(
   const renderRoot = () => {
     try {
       root.render(
-        React.createElement(IllustrationCanvas, {
+        React.createElement(BoardCanvas, {
           data: currentData,
           mode: ctx.mode,
           onChange: handleChange,
-        } as React.ComponentProps<typeof IllustrationCanvas>),
+        } as React.ComponentProps<typeof BoardCanvas>),
       )
     } catch (e) {
       const err = document.createElement("div")

@@ -9,29 +9,16 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react'
-import { Plus, Trash2, GitBranch, FileText, Play, MessageSquareQuote, Box, Tag, Workflow, LayoutDashboard } from 'lucide-react'
+import { Trash2, LayoutDashboard } from 'lucide-react'
 import { nodeTypes, CanvasSmoothEdge, CanvasConnectionLine } from './components.jsx'
 import { getIllustrationEdgeColor } from './illustrationEdgeModel.js'
-import { ILLUSTRATION_NODE_TYPE_META, ILLUSTRATION_COLOR_OPTIONS } from './illustration-helpers.js'
+import { ILLUSTRATION_NODE_TYPE_META } from './illustration-helpers.js'
 import { computeIllustrationSmartLayout } from './layout.js'
+import { ILLUSTRATION_PALETTE } from './palettes.js'
 
 const edgeTypes = {
   canvasSmoothEdge: CanvasSmoothEdge,
 }
-
-// Mapping for the floating "+ node" palette. Order matters — first item is
-// the default for keyboard shortcuts. Mirrors bridge's defaults so a board
-// authored in either tool ends up visually identical.
-const PALETTE = [
-  { type: 'note', label: 'Note', color: 'amber', Icon: MessageSquareQuote, defaultText: 'New note' },
-  { type: 'process', label: 'Process', color: 'cyan', Icon: Play, defaultText: 'Process step' },
-  { type: 'decision', label: 'Decision', color: 'rose', Icon: GitBranch, defaultText: 'Decision / gate' },
-  { type: 'artifact', label: 'Artifact', color: 'violet', Icon: FileText, defaultText: 'Artifact / output' },
-  { type: 'stack', label: 'Stack', color: 'violet', Icon: Workflow, defaultText: 'Stack\nRepeated block' },
-  { type: 'lane', label: 'Lane', color: 'mint', Icon: Box, defaultText: 'Lane / phase' },
-  { type: 'callout', label: 'Callout', color: 'amber', Icon: MessageSquareQuote, defaultText: 'Context note' },
-  { type: 'label', label: 'Label', color: 'mint', Icon: Tag, defaultText: 'Flow label' },
-]
 
 function nodeSize(node) {
   const meta = ILLUSTRATION_NODE_TYPE_META[node.type] || ILLUSTRATION_NODE_TYPE_META.note
@@ -123,10 +110,14 @@ function newNodeId() {
 }
 
 function makeNode(palette, position) {
-  const meta = ILLUSTRATION_NODE_TYPE_META[palette.type]
+  // palette.visual is set by widgets whose `type` is non-visual (workflow:
+  // type=call/llm/branch/...). Fall back to palette.type for plain
+  // illustration palettes where type IS the visual kind.
+  const visualType = palette.visual || palette.type
+  const meta = ILLUSTRATION_NODE_TYPE_META[visualType] || ILLUSTRATION_NODE_TYPE_META.note
   return {
     id: newNodeId(),
-    type: palette.type,
+    type: visualType,
     containerId: '',
     x: Math.round(position.x),
     y: Math.round(position.y),
@@ -160,7 +151,13 @@ function makeEdge(connection) {
   }
 }
 
-export default function IllustrationCanvas({ data, mode, onChange }) {
+export default function BoardCanvas({
+  data,
+  mode,
+  onChange,
+  palette = ILLUSTRATION_PALETTE,
+  extraToolbarRight = null,
+}) {
   const editable = mode === 'live'
   const [selectedNodeId, setSelectedNodeId] = useState('')
   const [selectedEdgeId, setSelectedEdgeId] = useState('')
@@ -300,10 +297,30 @@ export default function IllustrationCanvas({ data, mode, onChange }) {
         nodes: data.nodes,
         edges: data.edges,
       })
-      onChange([
-        { op: 'replace', path: '/nodes', value: next.nodes },
-        { op: 'replace', path: '/edges', value: next.edges },
-      ])
+      // Emit per-field replace ops instead of a wholesale `replace /nodes`.
+      // Wholesale replace would clobber widget-specific fields (workflow's
+      // kind/op/params/outputs, future widgets' extras) since our layout
+      // function only knows about visual fields. Fine-grained patches keep
+      // those untouched.
+      const ops = []
+      for (let i = 0; i < data.nodes.length; i++) {
+        const oldNode = data.nodes[i]
+        const newNode = next.nodes.find((n) => n.id === oldNode.id)
+        if (!newNode) continue
+        if (newNode.x !== oldNode.x) ops.push({ op: 'replace', path: `/nodes/${i}/x`, value: newNode.x })
+        if (newNode.y !== oldNode.y) ops.push({ op: 'replace', path: `/nodes/${i}/y`, value: newNode.y })
+        const oldW = oldNode.width
+        const newW = newNode.width
+        if (Number.isFinite(newW) && newW !== oldW) {
+          ops.push({ op: 'replace', path: `/nodes/${i}/width`, value: newW })
+        }
+        const oldH = oldNode.height
+        const newH = newNode.height
+        if (Number.isFinite(newH) && newH !== oldH) {
+          ops.push({ op: 'replace', path: `/nodes/${i}/height`, value: newH })
+        }
+      }
+      if (ops.length > 0) onChange(ops)
       window.setTimeout(() => {
         if (reactFlowInstance && typeof reactFlowInstance.fitView === 'function') {
           reactFlowInstance.fitView({ padding: 0.18, duration: 260 })
@@ -333,8 +350,8 @@ export default function IllustrationCanvas({ data, mode, onChange }) {
     if (typeof window !== 'undefined') {
       window.__illustrationDebugMove = move
       window.__illustrationDebugAdd = (paletteId) => {
-        const palette = PALETTE.find((p) => p.type === paletteId) || PALETTE[0]
-        addNode(palette)
+        const entry = palette.find((p) => p.type === paletteId) || palette[0]
+        addNode(entry)
         return true
       }
       window.__illustrationDebugDelete = () => {
@@ -358,7 +375,7 @@ export default function IllustrationCanvas({ data, mode, onChange }) {
       {editable ? (
         <div className="illustration-board__toolbar">
           <div className="illustration-board__toolbar-group">
-            {PALETTE.map((p) => (
+            {palette.map((p) => (
               <button
                 key={p.type}
                 type="button"
@@ -373,6 +390,7 @@ export default function IllustrationCanvas({ data, mode, onChange }) {
             ))}
           </div>
           <div className="illustration-board__toolbar-group illustration-board__toolbar-group--right">
+            {extraToolbarRight}
             <button
               type="button"
               className="illustration-board__toolbar-btn"

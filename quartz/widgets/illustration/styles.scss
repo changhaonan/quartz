@@ -2,7 +2,7 @@
 // with @xyflow/react/dist/style.css prepended (the React Flow framework
 // stylesheet — required for the canvas to render). Keep both close to
 // upstream so future bridge or React Flow tweaks land here as a copy.
-@use "./canvas-styles.css";
+@use "../_canvas/styles.css";
 
 .illustration-board-frame {
   display: flex;
