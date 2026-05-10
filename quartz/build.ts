@@ -129,6 +129,14 @@ async function startWatching(
       const pathStr = toPosixPath(fp.toString())
       if (pathStr.startsWith(".git/")) return true
       if (gitIgnoredMatcher(pathStr)) return true
+      // Workflow runtime artifacts (per-run logs, message handoffs,
+      // traces, evidence) churn rapidly during a live ask/run and should
+      // not trigger incremental rebuilds — they're machine state, not
+      // authoring content. Without this, clicking Run reloads the SPA
+      // mid-flight and destroys the widget's UI state.
+      if (/\.runtime\/(runs|messages|traces|evidence)(\/|$)/.test(pathStr)) {
+        return true
+      }
       for (const pattern of cfg.configuration.ignorePatterns) {
         if (minimatch(pathStr, pattern)) {
           return true

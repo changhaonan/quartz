@@ -498,11 +498,26 @@ export async function handleBuild(argv) {
       "**/*.scss",
       "package.json",
     ])
+    // Workflow runtime artifacts (per-run logs + messages between
+    // agents) churn rapidly during a live `ask` or `run` and should never
+    // trigger a full rebuild — they're not authoring content. Filtering
+    // at the event handler level (rather than via chokidar's `ignored`
+    // option) is more portable across chokidar versions and makes the
+    // skip behavior trivially auditable via a console.log.
+    const isRuntimeArtifact = (fp) => {
+      if (!fp) return false
+      const norm = String(fp).replace(/\\/g, "/")
+      return /\.runtime\/(runs|messages|traces|evidence)(\/|$)/.test(norm)
+    }
+    const maybeBuild = (eventPath) => {
+      if (isRuntimeArtifact(eventPath)) return
+      build(clientRefresh)
+    }
     chokidar
       .watch(paths, { ignoreInitial: true })
-      .on("add", () => build(clientRefresh))
-      .on("change", () => build(clientRefresh))
-      .on("unlink", () => build(clientRefresh))
+      .on("add", maybeBuild)
+      .on("change", maybeBuild)
+      .on("unlink", maybeBuild)
 
     console.log(styleText("gray", "hint: exit with ctrl+c"))
   }
