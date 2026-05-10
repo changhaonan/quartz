@@ -14,9 +14,15 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "jsx": "react-jsx",
     "jsxImportSource": "preact"
   },
   "include": ["**/*.ts", "**/*.tsx", "./package.json"],
-  "exclude": ["build/**/*.d.ts"]
+  "exclude": [
+    "build/**/*.d.ts",
+    "scripts/workflow-examples/**",
+    "scripts/workflow-runtime/**"
+  ]
 }
