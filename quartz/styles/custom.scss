@@ -1,3 +1,83 @@
 @use "./base.scss";
 
 // put your custom CSS here!
+
+@media all and (min-width: 1200px) {
+  .page {
+    max-width: 100vw;
+    margin: 0;
+
+    & > #quartz-body {
+      column-gap: 12px;
+      grid-template:
+        "grid-sidebar-left grid-header grid-sidebar-right grid-assistant" auto
+        "grid-sidebar-left grid-center grid-sidebar-right grid-assistant" auto
+        "grid-sidebar-left grid-footer grid-sidebar-right grid-assistant" auto /
+        220px minmax(0, 1fr) 240px clamp(420px, 34vw, 640px) !important;
+    }
+
+    & .left.sidebar {
+      padding-left: 1rem;
+      padding-right: 0.75rem;
+    }
+
+    & .right.sidebar {
+      padding-left: 0.75rem;
+      padding-right: 0.75rem;
+    }
+
+    & .center {
+      min-width: 0;
+    }
+
+    & .center > article {
+      max-width: none;
+    }
+
+    & .page-header,
+    & .center,
+    & footer {
+      padding-right: 0.5rem;
+    }
+
+    & .assistant-panel {
+      border-left: 1px solid var(--lightgray);
+      box-sizing: border-box;
+      grid-area: grid-assistant;
+      height: 100vh;
+      min-width: 0;
+      position: sticky;
+      top: 0;
+    }
+  }
+}
+
+@media all and (max-width: 1199px) {
+  .page > #quartz-body {
+    & .assistant-panel {
+      grid-column: 1 / -1;
+      min-width: 0;
+      width: 100%;
+    }
+  }
+}
+
+.bridge-frame-card[data-bridge-width="wide"] {
+  width: 100%;
+}
+
+.bridge-frame-card[data-bridge-chrome="integrated"] {
+  border-color: color-mix(in srgb, var(--lightgray) 70%, var(--secondary)) !important;
+  border-radius: 6px !important;
+  margin: 0.7rem 0 1rem !important;
+  box-shadow: none !important;
+}
+
+.bridge-frame-card[data-bridge-chrome="integrated"] .bridge-frame-header {
+  min-height: 28px;
+  padding: 0.35rem 0.65rem !important;
+}
+
+.bridge-frame-card iframe {
+  color-scheme: light;
+}

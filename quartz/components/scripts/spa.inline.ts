@@ -43,6 +43,60 @@ function notifyNav(url: FullSlug) {
 const cleanupFns: Set<(...args: any[]) => void> = new Set()
 window.addCleanup = (fn) => cleanupFns.add(fn)
 
+const aiContextAttrs = [
+  "data-file-slug",
+  "data-workspace-id",
+  "data-state-dir",
+  "data-role-id",
+  "data-agent",
+  "data-cwd",
+  "data-model",
+  "data-difficulty",
+  "data-bridge-origin",
+]
+
+type AiContext = Record<string, string>
+
+function readAiContext(from: Element | null): AiContext {
+  const context: AiContext = {}
+  if (!from) return context
+  for (const attr of aiContextAttrs) {
+    const value = from.getAttribute(attr)
+    if (value !== null) context[attr] = value
+  }
+  return context
+}
+
+function writeAiContext(to: Element | null, context: AiContext) {
+  if (!to) return
+  const keepSelectedAgent = to instanceof HTMLElement && to.dataset.agentLocked === "1"
+  for (const attr of aiContextAttrs) {
+    if (attr === "data-agent" && keepSelectedAgent) continue
+    const value = context[attr]
+    if (value === undefined) to.removeAttribute(attr)
+    else to.setAttribute(attr, value)
+  }
+}
+
+function preserveAiGlobalHost(nextBody: Document["body"]) {
+  const currentPanel = document.querySelector<HTMLElement>(".assistant-panel[data-ai-global-host]")
+  const incomingPanel = nextBody.querySelector<HTMLElement>(".assistant-panel")
+  if (!incomingPanel) return
+
+  incomingPanel.dataset.aiGlobalHost = ""
+  incomingPanel.dataset.persist = ""
+
+  if (!currentPanel || currentPanel === incomingPanel) return
+
+  const nextContext = readAiContext(incomingPanel.querySelector<HTMLElement>(".ai-sidebar"))
+  ;(window as Window & { __quartzAiPendingContext?: AiContext }).__quartzAiPendingContext = nextContext
+  currentPanel.dataset.aiGlobalHost = ""
+  currentPanel.dataset.persist = ""
+  const stableClone = currentPanel.cloneNode(true) as HTMLElement
+  writeAiContext(stableClone.querySelector<HTMLElement>(".ai-sidebar"), nextContext)
+  incomingPanel.replaceWith(stableClone)
+}
+
 function startLoading() {
   const loadingBar = document.createElement("div")
   loadingBar.className = "navigation-progress"
@@ -87,6 +141,7 @@ async function _navigate(url: URL, isBack: boolean = false) {
 
   const html = p.parseFromString(contents, "text/html")
   normalizeRelativeURLs(html, url)
+  preserveAiGlobalHost(html.body)
 
   let title = html.querySelector("title")?.textContent
   if (title) {

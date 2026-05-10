@@ -17,6 +17,7 @@ interface RenderComponents {
   beforeBody: QuartzComponent[]
   pageBody: QuartzComponent
   afterBody: QuartzComponent[]
+  assistant?: QuartzComponent[]
   left: QuartzComponent[]
   right: QuartzComponent[]
   footer: QuartzComponent
@@ -234,6 +235,7 @@ export function renderPage(
     beforeBody,
     pageBody: Content,
     afterBody,
+    assistant = [],
     left,
     right,
     footer: Footer,
@@ -252,6 +254,14 @@ export function renderPage(
   const RightComponent = (
     <div class="right sidebar">
       {right.map((BodyComponent) => (
+        <BodyComponent {...componentData} />
+      ))}
+    </div>
+  )
+
+  const AssistantComponent = (
+    <div class="assistant-panel" data-ai-global-host data-persist>
+      {assistant.map((BodyComponent) => (
         <BodyComponent {...componentData} />
       ))}
     </div>
@@ -288,6 +298,7 @@ export function renderPage(
               </div>
             </div>
             {RightComponent}
+            {AssistantComponent}
             <Footer {...componentData} />
           </Body>
         </div>
