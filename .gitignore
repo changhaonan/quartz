@@ -9,3 +9,8 @@ tsconfig.tsbuildinfo
 private/
 .replit
 replit.nix
+
+# content/ is tracked by its own independent git repo.
+# Keep the upstream .gitkeep marker; ignore everything else.
+/content/*
+!/content/.gitkeep
