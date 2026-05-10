@@ -354,6 +354,16 @@ export async function handleBuild(argv) {
 
     await build(clientRefresh)
     const server = http.createServer(async (req, res) => {
+      // Widget write API — runs on the Quartz dev server itself so widgets
+      // can mutate workspace JSON files without a separate bridge process,
+      // CORS, or PTY coupling. Path is content-root-relative; atomic write
+      // (temp + rename); chokidar (already watching content/) picks up the
+      // change and triggers an incremental rebuild.
+      const writeUrlPath = (req.url || "").split("?")[0]
+      if (req.method === "POST" && writeUrlPath === `${argv.baseDir || ""}/api/widget/write`) {
+        return handleWidgetWrite(req, res, argv)
+      }
+
       if (argv.baseDir && !req.url?.startsWith(argv.baseDir)) {
         console.log(
           styleText(
@@ -617,4 +627,201 @@ export async function handleSync(argv) {
   }
 
   console.log(styleText("green", "Done!"))
+}
+
+// ─── Widget write API helpers ────────────────────────────────────────────
+// Used by quartz/widgets/* clients to apply JSON Patch operations to
+// .runtime/*.json files atomically. Lives in the Quartz dev server so the
+// renderer subsystem doesn't need an external write service. For static
+// builds this code is unreachable (no `--serve`), so production deploys
+// are unaffected.
+
+function decodeJsonPointer(pointer) {
+  if (!pointer) return []
+  if (pointer === "/") return [""]
+  if (!pointer.startsWith("/")) {
+    const err = new Error(`json pointer must start with /: ${pointer}`)
+    err.statusCode = 400
+    throw err
+  }
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((seg) => seg.replace(/~1/g, "/").replace(/~0/g, "~"))
+}
+
+function applyJsonPatch(doc, ops) {
+  const root = { v: doc }
+  for (const op of ops) {
+    if (!op || typeof op !== "object" || typeof op.op !== "string" || typeof op.path !== "string") {
+      const err = new Error("invalid patch op")
+      err.statusCode = 400
+      throw err
+    }
+    const segs = decodeJsonPointer(op.path)
+    const last = segs.pop()
+    let parent = root
+    let key = "v"
+    for (const seg of segs) {
+      const next = parent[key]
+      if (next === null || typeof next !== "object") {
+        const err = new Error(`json patch path traverses non-object: ${op.path}`)
+        err.statusCode = 400
+        throw err
+      }
+      parent = next
+      key = Array.isArray(parent) ? Number(seg) : seg
+    }
+    const target = parent[key]
+    if (target === null || typeof target !== "object") {
+      const err = new Error(`json patch parent is not an object/array: ${op.path}`)
+      err.statusCode = 400
+      throw err
+    }
+    const finalKey = Array.isArray(target) ? (last === "-" ? target.length : Number(last)) : last
+    if (op.op === "replace") {
+      if (Array.isArray(target)) {
+        if (!Number.isFinite(finalKey) || finalKey < 0 || finalKey >= target.length) {
+          const err = new Error(`replace index out of bounds: ${op.path}`)
+          err.statusCode = 400
+          throw err
+        }
+      } else if (!Object.prototype.hasOwnProperty.call(target, finalKey)) {
+        const err = new Error(`replace target has no key: ${op.path}`)
+        err.statusCode = 400
+        throw err
+      }
+      target[finalKey] = op.value
+    } else if (op.op === "add") {
+      if (Array.isArray(target)) {
+        if (last === "-") target.push(op.value)
+        else target.splice(Number(finalKey), 0, op.value)
+      } else {
+        target[finalKey] = op.value
+      }
+    } else if (op.op === "remove") {
+      if (Array.isArray(target)) target.splice(Number(finalKey), 1)
+      else delete target[finalKey]
+    } else {
+      const err = new Error(`unsupported op: ${op.op}`)
+      err.statusCode = 400
+      throw err
+    }
+  }
+  return root.v
+}
+
+function widgetSendJson(res, status, payload) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8" })
+  res.end(JSON.stringify(payload))
+}
+
+async function handleWidgetWrite(req, res, argv) {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  let body
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+  } catch (e) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_json", message: e.message },
+    })
+  }
+
+  const filePathRel = String(body.path || "").replace(/^\/+/, "")
+  const patches = Array.isArray(body.patch) ? body.patch : null
+  if (!filePathRel || !patches || patches.length === 0) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "missing_fields", message: "path and non-empty patch are required" },
+    })
+  }
+
+  const contentRoot = path.resolve(argv.directory)
+  const absPath = path.resolve(contentRoot, filePathRel)
+  if (absPath !== contentRoot && !absPath.startsWith(contentRoot + path.sep)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "path_outside_content", message: "path escapes content root" },
+    })
+  }
+
+  const workspaceId = String(body.workspaceId || "").trim()
+  if (workspaceId) {
+    const expectedRuntimePrefix = path.resolve(contentRoot, `${workspaceId}.runtime`)
+    if (
+      absPath !== expectedRuntimePrefix &&
+      !absPath.startsWith(`${expectedRuntimePrefix}${path.sep}`)
+    ) {
+      return widgetSendJson(res, 400, {
+        ok: false,
+        error: {
+          code: "path_outside_workspace",
+          message: `path must live under ${workspaceId}.runtime/`,
+        },
+      })
+    }
+  }
+
+  let stat
+  try {
+    stat = await promises.stat(absPath)
+  } catch {
+    return widgetSendJson(res, 404, {
+      ok: false,
+      error: { code: "not_found", message: `data file not found: ${filePathRel}` },
+    })
+  }
+
+  if (body.ifVersion != null && String(body.ifVersion) !== String(stat.mtimeMs)) {
+    return widgetSendJson(res, 409, {
+      ok: false,
+      error: {
+        code: "version_conflict",
+        message: "data file has been modified since read",
+      },
+      currentVersion: String(stat.mtimeMs),
+    })
+  }
+
+  let parsed
+  try {
+    parsed = JSON.parse(await promises.readFile(absPath, "utf8"))
+  } catch (e) {
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "parse_error", message: `existing JSON is invalid: ${e.message}` },
+    })
+  }
+
+  let updated
+  try {
+    updated = applyJsonPatch(parsed, patches)
+  } catch (e) {
+    return widgetSendJson(res, e.statusCode || 400, {
+      ok: false,
+      error: { code: "patch_failed", message: e.message },
+    })
+  }
+
+  const tmpPath = `${absPath}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await promises.writeFile(tmpPath, `${JSON.stringify(updated, null, 2)}\n`, "utf8")
+    await promises.rename(tmpPath, absPath)
+  } catch (e) {
+    try {
+      await promises.unlink(tmpPath)
+    } catch {}
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "write_error", message: e.message },
+    })
+  }
+
+  const newStat = await promises.stat(absPath)
+  return widgetSendJson(res, 200, {
+    ok: true,
+    newVersion: String(newStat.mtimeMs),
+  })
 }

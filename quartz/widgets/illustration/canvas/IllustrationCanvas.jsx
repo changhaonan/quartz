@@ -1,5 +1,5 @@
 /** @jsxRuntime automatic @jsxImportSource react */
-import React, { useMemo, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react'
 import { nodeTypes, CanvasSmoothEdge, CanvasConnectionLine } from './components.jsx'
 import { getIllustrationEdgeColor } from './illustrationEdgeModel.js'
@@ -136,6 +136,32 @@ export default function IllustrationCanvas({ data, mode, onNodeMove }) {
     },
     [data, editable, onNodeMove],
   )
+
+  // Diagnostic hook: lets headless probes trigger a save without going
+  // through React Flow's pointer-event-based drag (which isn't reliably
+  // dispatchable from playwright). Safe to leave in: it's gated by a
+  // global property nothing else writes to and runs the same path drag
+  // would.
+  const dataRef = useRef(data)
+  dataRef.current = data
+  useEffect(() => {
+    if (!editable || !onNodeMove) return
+    const hook = (idx, x, y) => {
+      const d = dataRef.current
+      if (idx < 0 || idx >= d.nodes.length) return false
+      const node = d.nodes[idx]
+      onNodeMove({ id: node.id, index: idx, x, y })
+      return true
+    }
+    if (typeof window !== "undefined") {
+      window.__illustrationDebugMove = hook
+    }
+    return () => {
+      if (typeof window !== "undefined" && window.__illustrationDebugMove === hook) {
+        delete window.__illustrationDebugMove
+      }
+    }
+  }, [editable, onNodeMove])
 
   return (
     <ReactFlow
