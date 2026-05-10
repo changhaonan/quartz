@@ -384,6 +384,23 @@ const writeResult = await page.evaluate(
 )
 console.log(JSON.stringify(writeResult, null, 2))
 
+// If this looks like a workflow page, verify codegen by clicking Export TS.
+const exportProbe = await page.evaluate(() => {
+  const btn = Array.from(document.querySelectorAll("button"))
+    .find((b) => b.textContent && b.textContent.trim().startsWith("Export TS"))
+  if (!btn) return { found: false }
+  btn.click()
+  const pre = document.querySelector(".workflow-board__code-body")
+  return {
+    found: true,
+    source: pre ? pre.textContent : null,
+  }
+})
+if (exportProbe.found) {
+  console.log("\n=== generated TypeScript ===")
+  console.log(exportProbe.source)
+}
+
 await page.screenshot({ path: "/tmp/illustration-screenshot.png", fullPage: true })
 console.log("\nscreenshot saved to /tmp/illustration-screenshot.png")
 
