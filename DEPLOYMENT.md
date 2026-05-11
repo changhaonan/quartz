@@ -20,8 +20,8 @@ workflow cannot corrupt prod state.
 ## Layout on disk
 
 ```
-~/Projects/
-├── quartz_pty/                 # dev — your working tree (v4)
+<workspace>/
+├── quartz_pty/                 # dev — your working tree
 ├── quartz_pty_prod/            # git worktree on quartz-pty-prod-worktree
 │   ├── .quartz-pty-worktree.json
 │   ├── content/                # clone of content repo (main branch)
@@ -32,6 +32,8 @@ workflow cannot corrupt prod state.
 ├── claude_pty_prod/            # bridge — see claude_pty repo
 └── claude_pty_staging/
 ```
+
+All five directories are siblings under the same workspace root.
 
 The code repo (`quartz_pty/*`) uses **git worktrees**, so all three
 trees share `.git/` and can be on different branches simultaneously.

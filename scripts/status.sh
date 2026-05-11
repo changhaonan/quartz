@@ -37,6 +37,13 @@ worktree() {
   printf "%-9s  quartz :%-5s  bridge %s %s  %s\n" "$role" "$quartz_port" "$bridge_url" "$bridge_status" "$status"
 }
 
+# Derive the workspace root from this script's location, then look for
+# sibling prod/staging worktrees. Layout is documented in DEPLOYMENT.md;
+# overrides via QUARTZ_PTY_PROD_PATH / QUARTZ_PTY_STAGING_PATH env vars.
+workspace_root="$(cd "$(dirname "$0")/../.." && pwd)"
+prod_path="${QUARTZ_PTY_PROD_PATH:-$workspace_root/quartz_pty_prod}"
+staging_path="${QUARTZ_PTY_STAGING_PATH:-$workspace_root/quartz_pty_staging}"
+
 echo "quartz_pty stacks:"
-worktree prod    /Users/haonanchang/Projects/quartz_pty_prod
-worktree staging /Users/haonanchang/Projects/quartz_pty_staging
+worktree prod    "$prod_path"
+worktree staging "$staging_path"

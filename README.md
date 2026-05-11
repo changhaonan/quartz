@@ -47,8 +47,8 @@ separately from the code that renders them.
 
 Two worktrees sit alongside this one:
 
-- `/Users/haonanchang/Projects/quartz_pty_prod`   — quartz :8080 → bridge :3000
-- `/Users/haonanchang/Projects/quartz_pty_staging` — quartz :8081 → bridge :3001
+- `../quartz_pty_prod`     — quartz :8080 → bridge :3000
+- `../quartz_pty_staging`  — quartz :8081 → bridge :3001
 
 Each worktree has its own `content/` clone and a
 `.quartz-pty-worktree.json` pinning role and ports. The bridges

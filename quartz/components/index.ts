@@ -25,6 +25,7 @@ import Flex from "./Flex"
 import ConditionalRender from "./ConditionalRender"
 import AiSidebar from "./AiSidebar"
 import WidgetHost from "./WidgetHost"
+import EnvBadge from "./EnvBadge"
 
 export {
   ArticleTitle,
@@ -54,4 +55,5 @@ export {
   ConditionalRender,
   AiSidebar,
   WidgetHost,
+  EnvBadge,
 }

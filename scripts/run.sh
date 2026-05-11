@@ -32,7 +32,7 @@ worktree_cfg="node $repo_root/scripts/_worktree-config.cjs"
 configured_role="$($worktree_cfg read role 2>/dev/null || true)"
 if [[ -z "$configured_role" ]]; then
   echo "No .quartz-pty-worktree.json at $repo_root — this isn't a role-pinned worktree." >&2
-  echo "Run from /Users/haonanchang/Projects/quartz_pty_{prod,staging}." >&2
+  echo "Run from a quartz_pty_{prod,staging} worktree (see DEPLOYMENT.md)." >&2
   exit 1
 fi
 if [[ "$configured_role" != "$role" ]]; then
@@ -80,7 +80,7 @@ done
 if ! curl -fsS -m 2 "$bridge_url/api/health" >/dev/null 2>&1; then
   echo "warn: bridge at $bridge_url is not reachable. Quartz will start but" >&2
   echo "      workflow runs will fail until the matching bridge is up." >&2
-  echo "      Start it with: /Users/haonanchang/Projects/claude_pty_$role/scripts/run.sh $role" >&2
+  echo "      Start it from the matching claude_pty_$role worktree." >&2
 fi
 
 echo "[run.sh $role] quartz on :$quartz_port (ws :$ws_port) → bridge $bridge_url"
