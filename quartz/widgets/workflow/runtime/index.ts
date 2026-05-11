@@ -13,6 +13,8 @@ export {
   releaseAllOpenTickets,
 } from "./tickets.ts"
 export type { TicketHandle, TicketSpec } from "./tickets.ts"
+export { invokeAgent } from "./invokeAgent.ts"
+export type { InvokeAgentSpec, InvokeAgentResult } from "./invokeAgent.ts"
 export {
   input,
   submit,

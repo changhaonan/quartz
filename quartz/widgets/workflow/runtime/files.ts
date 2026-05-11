@@ -148,10 +148,16 @@ export async function waitForFile(
   filePath: string,
   opts: WaitFileOptions = {},
 ): Promise<FileSnapshot> {
+  // Tighter defaults than before: each ask() pays a fixed (intervalMs +
+  // stableMs) tail at the end while we confirm the file isn't still
+  // being written. 200/200 = 400ms × N hops adds up. Agent writes
+  // through Codex/Claude tools are quick — 50ms is enough to catch a
+  // mid-write race, and a callsite can pass a larger value when it
+  // knows the writer is slow.
   const startedAt = Date.now()
   const timeoutMs = opts.timeoutMs ?? 600000
-  const intervalMs = opts.intervalMs ?? 200
-  const stableMs = opts.stableMs ?? 200
+  const intervalMs = opts.intervalMs ?? 75
+  const stableMs = opts.stableMs ?? 75
   const requireUpdate = opts.requireUpdate ?? false
   const mtimeFloor = opts.mtimeFloor ?? 0
 

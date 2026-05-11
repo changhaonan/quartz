@@ -170,6 +170,7 @@ const {
   completeTicket,
   cancelTicket,
   releaseAllOpenTickets,
+  invokeAgent,
   messagePath,
   setRuntimeContext,
   setDefaultBridge,

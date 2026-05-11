@@ -63,8 +63,13 @@ export interface TicketSpec {
   fromRoleId?: string
   /**
    * Max time to wait for the bridge to deliver the ticket (auto-spawn +
-   * route). Default 30s — long enough for cold-start, short enough that
-   * a wedged bridge fails fast.
+   * route). Default 180s — empirically bridge cold-start (no live
+   * session of the role, agent process needs to launch from scratch)
+   * can take 45-60s on its own; budget some headroom on top. A wedged
+   * bridge still fails inside the runtime's own ask/spawn timeouts, so
+   * being generous here costs nothing in the happy path and avoids
+   * the surprising "ticket routed but no session resolved" the user
+   * hit when the cold start exceeded a tighter default.
    */
   awaitDeliveryMs?: number
   /**
@@ -126,40 +131,25 @@ interface TicketCreateResponse {
  */
 export async function fileTicket(spec: TicketSpec): Promise<TicketHandle> {
   const endpoint = resolveBridge(spec.bridge)
-  const awaitMs = spec.awaitDeliveryMs ?? 30_000
+  const awaitMs = spec.awaitDeliveryMs ?? 180_000
   const pollMs = spec.pollIntervalMs ?? 200
   // Progress log — flows through subprocess stdout to runs/<id>/stdout.log
   // which the browser tails during the run. Single line per phase.
   console.log(`[ticket] filing role=${spec.role} summary="${spec.summary}"...`)
   const _t0 = Date.now()
 
-  // The body is the only signal we get to the spawned agent on what to
-  // do. We use the ticket as a *lifecycle anchor* — the actual work
-  // happens through subsequent ask() calls on the session. So tell the
-  // agent unambiguously: don't act on the summary alone, wait for input
-  // on this session, and DON'T self-close. If the user provided their
-  // own body, append our directive so any custom context the caller
-  // wanted to inject is preserved.
-  // The body is the only signal we get to the spawned agent on what the
-  // ticket is for. We use the ticket purely as a session-lifecycle
-  // anchor — actual work arrives as subsequent inputs on the session.
-  // The directive has to balance two failure modes we saw in practice:
-  //   1. Too sparse → agent assumes "nothing to do here", auto-closes.
-  //   2. Too cautious ("wait quietly") → agent treats each task message
-  //      as more directive and just acknowledges instead of executing.
-  // Final phrasing aims to make the agent's contract crisp: "you are a
-  // task executor, each message is a task, complete it, stay alive."
-  const stayAliveBody = [
-    spec.body ?? "",
-    spec.body ? "\n\n---\n" : "",
-    "[workflow-runtime directive]",
-    "You are bound to this ticket as a task-execution endpoint for a workflow.",
-    "Each subsequent message on this session is a SEPARATE TASK from the workflow runtime.",
-    "Execute each task as instructed in its message body (including writing output files when asked).",
-    "Reply with the result requested by that specific message — do not just acknowledge.",
-    "Stay in `waiting_input` between tasks. Do NOT close this ticket;",
-    "the workflow runtime will close it explicitly when its run finishes.",
-  ].join(" ").replace(/\s+/g, " ").trim()
+  // Compact directive — three rules cover the agent's contract: each
+  // incoming message is a task to execute, reply with the requested
+  // result (not an acknowledgement), and don't self-close (runtime owns
+  // ticket lifetime). Longer phrasings didn't improve reliability with
+  // Codex / Kimi in testing; they just burned ~200 input tokens per
+  // session pickup.
+  const stayAliveBody =
+    (spec.body ? spec.body + "\n\n" : "") +
+    "[workflow-runtime] Each subsequent message on this session is a task. " +
+    "Execute it as written (including writing output files when asked). " +
+    "Reply with the requested result, not an acknowledgement. " +
+    "Stay in waiting_input. Do NOT close this ticket — the runtime closes it."
 
   const createRes = await bridgeFetch(endpoint, "POST", "/api/tickets", {
     fromRoleId: spec.fromRoleId ?? "admin",
@@ -203,6 +193,31 @@ export async function fileTicket(spec: TicketSpec): Promise<TicketHandle> {
 
   const handle: TicketHandle = { ticketId: ticket.id, sessionId, bridge: endpoint }
   registerOpenTicket(handle)
+  // Disable bridge auto-advance on this session — bridge fires a
+  // "where are you?" nudge after the session sits idle in
+  // waiting_input for advanceDelayMs (default 3min). For invokeAgent
+  // tasks that legitimately take that long, the nudge would interrupt
+  // the agent mid-thought. We own the session for the run, so opt out.
+  // Best-effort: 4xx from /advance (e.g. caller lacks admin cap) is
+  // logged but doesn't fail the ticket — workflows still work, the
+  // agent might just get a nudge.
+  try {
+    const advRes = await bridgeFetch(
+      endpoint,
+      "POST",
+      `/api/sessions/${encodeURIComponent(sessionId)}/advance`,
+      { on: false },
+    )
+    if (!advRes.ok && advRes.status !== 409) {
+      let bodyText = ""
+      try { bodyText = await advRes.text() } catch {}
+      console.error(
+        `[ticket] couldn't disable advance on ${sessionId} (HTTP ${advRes.status}): ${bodyText.slice(0, 120)}`,
+      )
+    }
+  } catch (e) {
+    console.error(`[ticket] advance-off error on ${sessionId}: ${(e as Error).message}`)
+  }
   console.log(`[ticket] got ${ticket.id} → ${sessionId} (${((Date.now() - _t0) / 1000).toFixed(1)}s)`)
   return handle
 }

@@ -120,24 +120,15 @@ function toYaml(value: unknown, indent: number): string {
 }
 
 function buildOutputInstruction(absolutePath: string, format: AskOptions["format"]): string {
+  // Tight phrasing — every token here is paid on every ask. The agent
+  // only needs three things: where, format, and a stop signal.
   const fmt = format ?? (absolutePath.endsWith(".json") ? "json" : "text")
-  const lines: string[] = [
-    "",
-    "[OUTPUT INSTRUCTION]",
-    `Write your final answer to: ${absolutePath}`,
-    `Format: ${fmt}.`,
-  ]
-  if (fmt === "json") {
-    lines.push(
-      "Write only the JSON value (no preamble, no markdown fences). The file must parse with JSON.parse().",
-    )
-  } else if (fmt === "markdown") {
-    lines.push("Write the answer as Markdown.")
-  } else {
-    lines.push("Write only the answer text — no preamble.")
-  }
-  lines.push("After writing, finish your turn so the workflow can pick up the file.")
-  return lines.join("\n")
+  const tail = fmt === "json"
+    ? "JSON only, no fences."
+    : fmt === "markdown"
+      ? "Markdown body only."
+      : "Plain text only."
+  return `\n[OUTPUT]\nWrite to ${absolutePath} as ${fmt}. ${tail} Then finish your turn.`
 }
 
 function pickReplyFromState(state: SessionState, mode: NonNullable<AskOptions["extract"]>): string {
