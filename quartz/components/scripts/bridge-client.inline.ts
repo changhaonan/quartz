@@ -210,6 +210,37 @@ function ensureGlobalAiHost(): HTMLElement | null {
   return hostSidebar
 }
 
+// Persisted session id per (bridge, workspace) so a rebuild + refresh
+// reconnects to the existing PTY instead of orphaning it and creating a
+// new one. Sidebar.dataset.sessionId alone is DOM memory — it vanishes
+// on any hard reload, which the dev server triggers on every rebuild.
+function sessionStorageKey(bridgeOrigin: string, workspaceId: string): string {
+  return `quartz-pty:session:${bridgeOrigin}:${workspaceId}`
+}
+
+function loadStoredSessionId(bridgeOrigin: string, workspaceId: string): string | null {
+  if (!workspaceId) return null
+  try {
+    return window.localStorage.getItem(sessionStorageKey(bridgeOrigin, workspaceId))
+  } catch {
+    return null
+  }
+}
+
+function storeSessionId(bridgeOrigin: string, workspaceId: string, sessionId: string) {
+  if (!workspaceId) return
+  try {
+    window.localStorage.setItem(sessionStorageKey(bridgeOrigin, workspaceId), sessionId)
+  } catch {}
+}
+
+function clearStoredSessionId(bridgeOrigin: string, workspaceId: string) {
+  if (!workspaceId) return
+  try {
+    window.localStorage.removeItem(sessionStorageKey(bridgeOrigin, workspaceId))
+  } catch {}
+}
+
 function mountTerminalFrame(sidebar: HTMLElement, bridgeOrigin: string, sessionId: string) {
   const terminal = sidebar.querySelector<HTMLElement>("[data-ai-terminal]")
   if (!terminal) return
@@ -314,6 +345,7 @@ async function createBridgeSession(
     throw new Error(payload.error || `session ${res.status}`)
   }
   sidebar.dataset.sessionId = sessionId
+  storeSessionId(bridgeOrigin, workspaceId, sessionId)
   setAiStatus(sidebar, `${agent} PTY ready for ${workspaceId}: ${sessionId}`)
   return { sessionId, resumed: Boolean(payload.resumed) }
 }
@@ -464,6 +496,32 @@ async function hydrateBridgeSidebars() {
       }
       setSidebarStatus(sidebar, "connected", `Bridge ${health.port ?? ""}`.trim(), `${sessionText} · ${version}`, bridgeOrigin)
       setRuntimeMeta(sidebar, manifestSummary)
+
+      // Resume an existing PTY session if we remember one and it's
+      // still alive on the bridge. This is the path that fixes
+      // "rebuild + refresh kills the PTY": the session id survives
+      // in localStorage; we verify the bridge still has it; if yes,
+      // re-mount the terminal frame without requiring a user click.
+      const workspaceId = sidebar.dataset.workspaceId || sidebar.dataset.fileSlug || ""
+      const remembered = loadStoredSessionId(bridgeOrigin, workspaceId)
+      if (remembered) {
+        try {
+          const state = await fetchSessionState(bridgeOrigin, remembered)
+          const alive = state.ok !== false && state.session && state.session.state !== "exited"
+          if (alive) {
+            sidebar.dataset.sessionId = remembered
+            mountTerminalFrame(sidebar, bridgeOrigin, remembered)
+            setAiStatus(sidebar, `Resumed PTY ${remembered} for ${workspaceId}.`)
+          } else {
+            clearStoredSessionId(bridgeOrigin, workspaceId)
+          }
+        } catch {
+          // Bridge doesn't know this session — it died while we were
+          // away. Clear the stale id so the next Start-PTY click
+          // creates fresh.
+          clearStoredSessionId(bridgeOrigin, workspaceId)
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "health failed"
       setSidebarStatus(sidebar, "error", "Bridge unreachable", message, bridgeOrigin)
