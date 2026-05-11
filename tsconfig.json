@@ -22,6 +22,8 @@
   "include": ["**/*.ts", "**/*.tsx", "./package.json"],
   "exclude": [
     "build/**/*.d.ts",
+    "public/**",
+    "content/**/*.runtime/runs/**",
     "scripts/workflow-examples/**",
     "scripts/workflow-runtime/**"
   ]
