@@ -214,6 +214,18 @@ function ensureGlobalAiHost(): HTMLElement | null {
 // reconnects to the existing PTY instead of orphaning it and creating a
 // new one. Sidebar.dataset.sessionId alone is DOM memory — it vanishes
 // on any hard reload, which the dev server triggers on every rebuild.
+//
+// Workspace id resolution MUST match createBridgeSession exactly,
+// otherwise the resume key differs from the persist key and we never
+// hit the cache. Centralised so the two paths can't drift.
+function resolveWorkspaceId(sidebar: HTMLElement): string {
+  return (
+    sidebar.dataset.workspaceId ||
+    sidebar.dataset.fileSlug ||
+    "quartz-file-runtime"
+  )
+}
+
 function sessionStorageKey(bridgeOrigin: string, workspaceId: string): string {
   return `quartz-pty:session:${bridgeOrigin}:${workspaceId}`
 }
@@ -315,7 +327,7 @@ async function createBridgeSession(
   const cwd = sidebar.dataset.cwd || ""
   const model = sidebar.dataset.model || ""
   const difficulty = sidebar.dataset.difficulty || "medium"
-  const workspaceId = sidebar.dataset.workspaceId || sidebar.dataset.fileSlug || "quartz-file-runtime"
+  const workspaceId = resolveWorkspaceId(sidebar)
   const fileSlug = sidebar.dataset.fileSlug || ""
   const stateDir = sidebar.dataset.stateDir || ""
   const body: Record<string, string | boolean> = {
@@ -502,7 +514,7 @@ async function hydrateBridgeSidebars() {
       // "rebuild + refresh kills the PTY": the session id survives
       // in localStorage; we verify the bridge still has it; if yes,
       // re-mount the terminal frame without requiring a user click.
-      const workspaceId = sidebar.dataset.workspaceId || sidebar.dataset.fileSlug || ""
+      const workspaceId = resolveWorkspaceId(sidebar)
       const remembered = loadStoredSessionId(bridgeOrigin, workspaceId)
       if (remembered) {
         try {
