@@ -16,9 +16,14 @@ import { chromium } from "playwright"
 import { execSync } from "node:child_process"
 import { setTimeout as sleep } from "node:timers/promises"
 
-const BASE = "http://127.0.0.1:8081"
-const BRIDGE = "http://127.0.0.1:3001"
-const TOUCH_FILE = "/Users/haonanchang/Projects/quartz_pty_staging/content/demos/index.md"
+// Defaults target the staging stack. Override via env for any other:
+//   BASE=http://127.0.0.1:8080 BRIDGE=http://127.0.0.1:3000 \
+//     TOUCH_FILE=/abs/path/content/file.md node scripts/test-sidebar-resume.mjs
+const BASE = process.env.BASE || "http://127.0.0.1:8081"
+const BRIDGE = process.env.BRIDGE || "http://127.0.0.1:3001"
+const TOUCH_FILE =
+  process.env.TOUCH_FILE ||
+  "/Users/haonanchang/Projects/quartz_pty_staging/content/demos/index.md"
 
 const browser = await chromium.launch({ headless: true })
 const ctx = await browser.newContext()

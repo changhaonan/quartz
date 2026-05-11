@@ -13,12 +13,17 @@
   },
   "scripts": {
     "quartz": "./quartz/bootstrap-cli.mjs",
+    "dev": "npx quartz build --serve --port 8090 --wsPort 3020",
     "docs": "npx quartz build --serve -d docs",
     "check": "tsc --noEmit && npx prettier . --check",
     "format": "npx prettier . --write",
     "test": "tsx --test",
     "profile": "0x -D prof ./quartz/bootstrap-cli.mjs build --concurrency=1",
-    "test:runtime": "node --test scripts/workflow-runtime/test-runtime.mjs scripts/workflow-runtime/test-telephone.mjs scripts/workflow-runtime/test-run-driver.mjs scripts/workflow-runtime/test-tickets.mjs scripts/workflow-runtime/test-invoke-agent.mjs scripts/workflow-runtime/test-invoke-agent-stress.mjs scripts/workflow-runtime/test-interaction-patterns.mjs"
+    "test:runtime": "node --test scripts/workflow-runtime/test-runtime.mjs scripts/workflow-runtime/test-telephone.mjs scripts/workflow-runtime/test-run-driver.mjs scripts/workflow-runtime/test-tickets.mjs scripts/workflow-runtime/test-invoke-agent.mjs scripts/workflow-runtime/test-invoke-agent-stress.mjs scripts/workflow-runtime/test-interaction-patterns.mjs",
+    "test:e2e": "node scripts/test-sidebar-resume.mjs",
+    "test:e2e:prod": "BASE=http://127.0.0.1:8080 BRIDGE=http://127.0.0.1:3000 TOUCH_FILE=../quartz_pty_prod/content/index.md node scripts/test-sidebar-resume.mjs",
+    "promote:staging": "bash scripts/promote.sh staging",
+    "promote:prod": "bash scripts/promote.sh prod"
   },
   "engines": {
     "npm": ">=10.9.2",
