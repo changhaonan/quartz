@@ -173,6 +173,100 @@ export async function workflow() {
   }
 })
 
+test("run-driver: userInput round-trips through file-based request/response", async () => {
+  const w = await setup("input")
+  try {
+    const source = `
+export async function workflow() {
+  const name = await userInput({ inputType: "text", label: "Name" })
+  const n = await userInput({ inputType: "number", label: "Count" })
+  return { name, n, doubled: n * 2 }
+}
+`.trim()
+    const inputsDir = path.join(w.runDir, "inputs")
+    await mkdir(inputsDir, { recursive: true })
+
+    // Race condition tolerance: the subprocess writes <reqId>.request.json
+    // when it hits the userInput() call; we then need to drop a matching
+    // .response.json. Poll the inputs dir from the test side and answer
+    // each request as it appears. Mirrors how the browser would behave.
+    const responderAbort = { stop: false }
+    const responderDone = (async () => {
+      const { readdir } = await import("node:fs/promises")
+      const answers = ["Alice", 7]
+      let answered = 0
+      while (!responderAbort.stop && answered < answers.length) {
+        let entries = []
+        try {
+          entries = await readdir(inputsDir)
+        } catch {
+          entries = []
+        }
+        const responseSet = new Set(
+          entries
+            .filter((n) => n.endsWith(".response.json"))
+            .map((n) => n.slice(0, -".response.json".length)),
+        )
+        for (const name of entries) {
+          if (!name.endsWith(".request.json")) continue
+          const reqId = name.slice(0, -".request.json".length)
+          if (responseSet.has(reqId)) continue
+          const responsePath = path.join(inputsDir, `${reqId}.response.json`)
+          const payload = {
+            reqId,
+            value: answers[answered],
+            respondedAt: new Date().toISOString(),
+          }
+          await writeFile(responsePath, JSON.stringify(payload), "utf8")
+          answered += 1
+          break
+        }
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    })()
+
+    const out = await runDriver({
+      runDir: w.runDir,
+      contentRoot: w.contentRoot,
+      workspaceId: "demo",
+      source,
+    })
+    responderAbort.stop = true
+    await responderDone
+
+    assert.equal(out.exitCode, 0, `exit=${out.exitCode}; stderr=${out.stderr.slice(-1000)}`)
+    assert.deepEqual(out.result, {
+      ok: true,
+      result: { name: "Alice", n: 7, doubled: 14 },
+    })
+  } finally {
+    await w.cleanup()
+  }
+})
+
+test("run-driver: userInput times out cleanly when no response arrives", async () => {
+  const w = await setup("input-timeout")
+  try {
+    const source = `
+export async function workflow() {
+  return await userInput({ inputType: "text", label: "won't be answered", timeoutMs: 300 })
+}
+`.trim()
+    const out = await runDriver({
+      runDir: w.runDir,
+      contentRoot: w.contentRoot,
+      workspaceId: "demo",
+      source,
+    })
+    assert.equal(out.exitCode, 1)
+    assert.equal(out.result?.ok, false)
+    assert.match(out.result?.error?.message ?? "", /timed out/i)
+    assert.equal(out.result?.error?.code, "input_timeout")
+  } finally {
+    await w.cleanup()
+  }
+})
+
 test("run-driver: workflow can use messagePath + writeJsonAtomic", async () => {
   const w = await setup("primitives")
   try {

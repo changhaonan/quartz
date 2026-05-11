@@ -13,6 +13,7 @@ export const WorkflowNodeKind = z.enum([
   "llm",        // LLM completion: `out = await llm(prompt, model, ...)`
   "ask",        // PTY ask:        `out = await ask(sessionId, prompt, opts?)`
   "spawn",      // PTY spawn:      `out = await spawn({ agent, ... })`
+  "input",      // human-in-the-loop prompt: `out = await userInput({ ... })`
   "branch",     // decision diamond: yes/no, mapped to if/else
   "loop",       // stack with loopCount > 1, mapped to for-loop
   "parallel",   // lane/group containing independent branches; Promise.all
@@ -37,6 +38,11 @@ export const WorkflowParamSchema = z.union([
   z.number(),
   z.boolean(),
   z.null(),
+  // Array of strings — used for input-node `options` (select dropdown values).
+  // Codegen falls back to JSON.stringify for non-primitive params, so this
+  // round-trips cleanly. Keep the shape narrow on purpose: if you want richer
+  // structure, encode it as a JSON string for now.
+  z.array(z.string()),
 ])
 
 // Visual primitive (illustration kind) the canvas should render this node as.
@@ -49,6 +55,7 @@ export const WorkflowVisualKind = z.enum([
   "lane",
   "group",
   "artifact",
+  "input",
   "note",
   "callout",
   "label",
@@ -117,6 +124,7 @@ export const KIND_TO_VISUAL: Record<WorkflowNodeKind, WorkflowVisualKind> = {
   llm: "process",
   ask: "process",
   spawn: "artifact",
+  input: "input",
   branch: "decision",
   loop: "stack",
   parallel: "lane",

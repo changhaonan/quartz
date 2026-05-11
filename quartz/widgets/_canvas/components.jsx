@@ -383,6 +383,7 @@ function IllustrationNode({ data }) {
     process: 'Process step',
     decision: 'Decision / gate',
     artifact: 'Artifact / output',
+    input: 'User input field',
     callout: 'Context note',
   }[data.illustrationType] || 'Illustration note';
   const displayText = data.text || fallbackText;

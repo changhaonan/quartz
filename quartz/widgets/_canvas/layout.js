@@ -3,15 +3,20 @@
 // is the actual code path. If ELK fails for a real graph we will re-add the fallback.
 
 import { ILLUSTRATION_NODE_TYPE_META } from './illustration-helpers.js';
+// Layout sizing. Was originally inherited from the blueprint canvas where
+// the surrounding UI gave plenty of horizontal headroom; in the Quartz
+// page context the article column is narrower, so we keep the rank
+// separation tighter (was 164 → 88). nodeSep stays loose-ish because it's
+// the vertical axis, where we have plenty of room.
 const ILLUSTRATION_LAYOUT = {
-  nodeSep: 72,
-  rankSep: 164,
-  rootMarginX: 72,
-  rootMarginY: 72,
-  stackMarginX: 56,
-  stackMarginTop: 104,
-  stackMarginBottom: 56,
-  stackMinGapRight: 56,
+  nodeSep: 60,
+  rankSep: 88,
+  rootMarginX: 56,
+  rootMarginY: 56,
+  stackMarginX: 48,
+  stackMarginTop: 88,
+  stackMarginBottom: 48,
+  stackMinGapRight: 48,
 };
 
 let elkInstancePromise = null;
@@ -188,8 +193,8 @@ function createElkNode(node, childrenByContainer, nodeById) {
       }),
       'elk.algorithm': 'layered',
       'elk.direction': 'RIGHT',
-      'elk.spacing.nodeNode': '58',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '136',
+      'elk.spacing.nodeNode': '44',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '84',
     }
     : undefined;
   return {

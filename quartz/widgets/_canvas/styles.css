@@ -944,6 +944,30 @@ svg.react-flow__connectionline {
 .canvas-illustration-surface.type-artifact::before {
   content: none;
 }
+/* Input node — visually echoes a form field. Dashed outline + a tiny
+ * "input slot" bar across the top so users can recognize at a glance
+ * that this node solicits human input rather than producing data.
+ */
+.canvas-illustration-surface.type-input {
+  border-radius: 10px;
+  border: 2px dashed color-mix(in srgb, var(--illustration-accent) 62%, #ffffff);
+  background:
+    linear-gradient(180deg, #ffffff 0%, color-mix(in srgb, var(--illustration-accent) 8%, #ffffff) 100%);
+  padding: 16px 18px 14px 20px;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.82);
+}
+.canvas-illustration-surface.type-input::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--illustration-accent) 28%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--illustration-accent) 55%, #ffffff);
+}
 .canvas-illustration-surface.type-lane,
 .canvas-illustration-surface.type-group {
   background: color-mix(in srgb, var(--illustration-accent) 10%, #ffffff);

@@ -5,6 +5,14 @@
 
 export { ask, getRuntimeContext, setRuntimeContext } from "./ask.ts"
 export { spawn } from "./spawn.ts"
+export { userInput } from "./userInput.ts"
+export {
+  fileTicket,
+  completeTicket,
+  cancelTicket,
+  releaseAllOpenTickets,
+} from "./tickets.ts"
+export type { TicketHandle, TicketSpec } from "./tickets.ts"
 export {
   input,
   submit,
@@ -40,6 +48,10 @@ export type {
   SessionStateName,
   SpawnResult,
   SpawnSpec,
+  UserInputRequest,
+  UserInputResponse,
+  UserInputSpec,
+  UserInputType,
   WaitFileOptions,
 } from "./types.ts"
 export { WorkflowRuntimeError } from "./types.ts"

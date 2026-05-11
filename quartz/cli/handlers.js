@@ -1,4 +1,4 @@
-import { promises } from "fs"
+import { promises, openSync, writeSync, closeSync } from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 import { spawn as spawnChild } from "child_process"
@@ -374,6 +374,48 @@ export async function handleBuild(argv) {
       }
       if (req.method === "POST" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/run`) {
         return handleWorkflowRun(req, res, argv)
+      }
+      if (req.method === "GET" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/pending-inputs`) {
+        return handleWorkflowPendingInputs(req, res, argv)
+      }
+      if (req.method === "POST" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/input`) {
+        return handleWorkflowInput(req, res, argv)
+      }
+
+      // Widget data files (workflow.json, board.json, …) live under
+      // <thing>.runtime/ and are written by the widget itself via
+      // /api/widget/write. The build pipeline intentionally skips these
+      // paths (drag/edit fires writes constantly — rebuilding would
+      // SPA-reload mid-interaction), but that means public/ never sees
+      // the updates. Serve straight from content/ on every GET so the
+      // widget always sees the latest state on (re)mount.
+      if (
+        req.method === "GET" &&
+        /(^|\/)[^/]+\.runtime\/[^/]+\.json$/.test(writeUrlPath)
+      ) {
+        return handleRuntimeJsonGet(req, res, argv, writeUrlPath)
+      }
+      // Per-run log files live deeper: <ws>.runtime/runs/<runId>/{stdout,stderr}.log
+      // The browser tails these during an active run to show progress.
+      if (
+        req.method === "GET" &&
+        /(^|\/)[^/]+\.runtime\/runs\/[^/]+\/(stdout|stderr)\.log$/.test(writeUrlPath)
+      ) {
+        return handleRuntimeLogGet(req, res, argv, writeUrlPath)
+      }
+      // Active-runs index — workspace-scoped list of runs whose result.json
+      // doesn't yet exist (i.e. still in flight). Browser uses this to find
+      // the runId(s) to tail.
+      if (req.method === "GET" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/active-runs`) {
+        return handleWorkflowActiveRuns(req, res, argv)
+      }
+      // Recent-runs index — newest-first list including completed runs,
+      // with each run's status + result + exitCode + log tail. The
+      // browser's auto-restore on widget mount uses this so a previous
+      // run's result re-appears in the inline panel after navigate-away
+      // / refresh / new tab.
+      if (req.method === "GET" && writeUrlPath === `${argv.baseDir || ""}/api/workflow/runs`) {
+        return handleWorkflowRuns(req, res, argv)
       }
 
       if (argv.baseDir && !req.url?.startsWith(argv.baseDir)) {
@@ -955,18 +997,33 @@ async function handleWorkflowRun(req, res, argv) {
     },
   )
 
+  // Stream stdout/stderr to disk as the subprocess emits them, in addition
+  // to buffering in memory for the final JSON response. We use sync
+  // writeSync to a held-open fd rather than fs.createWriteStream — the
+  // latter holds chunks in an in-memory buffer (highWaterMark 16KB) until
+  // .end() is called, so for low-volume progress lines (~1KB/run) the
+  // file appears empty until the child exits. writeSync flushes each
+  // chunk to the OS immediately, so a browser tailing the file sees
+  // each `[hop N] sending…` line as it happens.
+  const stdoutFd = openSync(stdoutPath, "w")
+  const stderrFd = openSync(stderrPath, "w")
   let stdout = ""
   let stderr = ""
   child.stdout.on("data", (chunk) => {
     stdout += chunk.toString()
+    try { writeSync(stdoutFd, chunk) } catch {}
   })
   child.stderr.on("data", (chunk) => {
     stderr += chunk.toString()
+    try { writeSync(stderrFd, chunk) } catch {}
   })
 
+  // 30-minute default to comfortably cover human-in-the-loop runs that
+  // pause on userInput(); short scripted workflows can pass a smaller
+  // timeoutMs to bail out faster.
   const timeoutMs = Number.isFinite(body.timeoutMs)
     ? Math.max(1000, Math.min(3_600_000, body.timeoutMs))
-    : 5 * 60_000
+    : 30 * 60_000
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
@@ -981,10 +1038,9 @@ async function handleWorkflowRun(req, res, argv) {
   })
   clearTimeout(timer)
 
-  try {
-    await promises.writeFile(stdoutPath, stdout, "utf8")
-    await promises.writeFile(stderrPath, stderr, "utf8")
-  } catch {}
+  // writeSync flushed each chunk immediately; just close the fds.
+  try { closeSync(stdoutFd) } catch {}
+  try { closeSync(stderrFd) } catch {}
 
   let result = null
   try {
@@ -1007,4 +1063,427 @@ async function handleWorkflowRun(req, res, argv) {
     stderr: tail(stderr, 16_000),
     result,
   })
+}
+
+// ─── Human-in-the-loop input handlers ─────────────────────────────────
+// The running workflow subprocess writes
+// .runtime/runs/<runId>/inputs/<reqId>.request.json when it hits a
+// userInput() call. The browser polls /pending-inputs to discover those
+// requests, renders a Gradio-style form, and POSTs to /input — which
+// writes <reqId>.response.json so the subprocess can unblock.
+//
+// Path safety: we resolve everything under contentRoot/<workspaceId>.runtime
+// and refuse anything that escapes (no .., no absolute paths in user input).
+
+function inputsDirFor(argv, workspaceId, runId) {
+  const contentRoot = path.resolve(argv.directory)
+  const runtimeRoot = path.resolve(contentRoot, `${workspaceId}.runtime`)
+  // Defense-in-depth: re-resolve and check containment after joining.
+  const candidate = path.resolve(runtimeRoot, "runs", runId, "inputs")
+  if (!candidate.startsWith(runtimeRoot + path.sep)) {
+    return null
+  }
+  return candidate
+}
+
+function isSafeRunId(id) {
+  if (!id) return false
+  if (id.includes("..") || id.includes("/") || id.includes("\\")) return false
+  return /^[A-Za-z0-9_\-:.]+$/.test(id)
+}
+
+function isSafeReqId(id) {
+  if (!id) return false
+  return /^[A-Za-z0-9_\-]{1,32}$/.test(id)
+}
+
+async function scanInputsDir(inputsDir, runId) {
+  let entries = []
+  try {
+    entries = await promises.readdir(inputsDir)
+  } catch (e) {
+    if (e.code === "ENOENT") return []
+    throw e
+  }
+  // A request is "pending" iff <reqId>.request.json exists with no matching
+  // <reqId>.response.json. Read each request file to surface its spec to
+  // the browser; ignore unparseable files (the subprocess might be
+  // mid-write, in which case the browser retries next poll).
+  const responseSet = new Set(
+    entries
+      .filter((n) => n.endsWith(".response.json"))
+      .map((n) => n.slice(0, -".response.json".length)),
+  )
+  const pending = []
+  for (const name of entries) {
+    if (!name.endsWith(".request.json")) continue
+    const reqId = name.slice(0, -".request.json".length)
+    if (responseSet.has(reqId)) continue
+    try {
+      const text = await promises.readFile(path.join(inputsDir, name), "utf8")
+      const parsed = JSON.parse(text)
+      if (parsed?.reqId && parsed?.spec) {
+        pending.push({ ...parsed, runId })
+      }
+    } catch {
+      // Treat as not-yet-readable; keep going.
+    }
+  }
+  return pending
+}
+
+async function handleWorkflowPendingInputs(req, res, argv) {
+  const url = new URL(req.url, "http://localhost")
+  const workspaceId = String(url.searchParams.get("workspaceId") || "").trim()
+  const runId = String(url.searchParams.get("runId") || "").trim()
+
+  if (!workspaceId || !isSafeWorkspaceId(workspaceId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_workspace", message: "invalid workspaceId" },
+    })
+  }
+
+  const pending = []
+  try {
+    if (runId) {
+      if (!isSafeRunId(runId)) {
+        return widgetSendJson(res, 400, {
+          ok: false,
+          error: { code: "bad_run_id", message: "invalid runId" },
+        })
+      }
+      const inputsDir = inputsDirFor(argv, workspaceId, runId)
+      if (!inputsDir) {
+        return widgetSendJson(res, 400, {
+          ok: false,
+          error: { code: "bad_path", message: "path escapes runtime root" },
+        })
+      }
+      pending.push(...(await scanInputsDir(inputsDir, runId)))
+    } else {
+      // No runId: the browser kicked off /api/workflow/run and is waiting
+      // on that response, so it doesn't know the runId yet. Scan every
+      // run directory in the workspace and collect pending across all of
+      // them. The browser tags its POST /api/workflow/input with the runId
+      // we surface here, so it always responds to the right subprocess.
+      const contentRoot = path.resolve(argv.directory)
+      const runtimeRoot = path.resolve(contentRoot, `${workspaceId}.runtime`)
+      const runsRoot = path.join(runtimeRoot, "runs")
+      let runDirs = []
+      try {
+        runDirs = await promises.readdir(runsRoot)
+      } catch (e) {
+        if (e.code !== "ENOENT") throw e
+      }
+      for (const dir of runDirs) {
+        if (!isSafeRunId(dir)) continue
+        const inputsDir = inputsDirFor(argv, workspaceId, dir)
+        if (!inputsDir) continue
+        pending.push(...(await scanInputsDir(inputsDir, dir)))
+      }
+    }
+  } catch (e) {
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "read_error", message: e.message },
+    })
+  }
+
+  // Stable ordering by requestedAt so the form list doesn't shuffle on
+  // each poll. Falls back to reqId when timestamps tie.
+  pending.sort((a, b) => {
+    const ta = String(a.requestedAt || "")
+    const tb = String(b.requestedAt || "")
+    if (ta !== tb) return ta < tb ? -1 : 1
+    return String(a.reqId).localeCompare(String(b.reqId))
+  })
+  return widgetSendJson(res, 200, { ok: true, pending })
+}
+
+async function handleWorkflowInput(req, res, argv) {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  let body
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+  } catch (e) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_json", message: e.message },
+    })
+  }
+
+  const workspaceId = String(body.workspaceId || "").trim()
+  const runId = String(body.runId || "").trim()
+  const reqId = String(body.reqId || "").trim()
+  const value = body.value
+
+  if (!workspaceId || !isSafeWorkspaceId(workspaceId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_workspace", message: "invalid workspaceId" },
+    })
+  }
+  if (!runId || !isSafeRunId(runId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_run_id", message: "invalid runId" },
+    })
+  }
+  if (!reqId || !isSafeReqId(reqId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_req_id", message: "invalid reqId" },
+    })
+  }
+
+  const inputsDir = inputsDirFor(argv, workspaceId, runId)
+  if (!inputsDir) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_path", message: "path escapes runtime root" },
+    })
+  }
+
+  // Sanity-check: the matching request file must exist. Without this, a
+  // stray POST could plant a response.json that nothing's waiting on (the
+  // subprocess writes the request first, blocks on waitForFile second).
+  const requestPath = path.join(inputsDir, `${reqId}.request.json`)
+  try {
+    await promises.access(requestPath)
+  } catch {
+    return widgetSendJson(res, 404, {
+      ok: false,
+      error: { code: "no_request", message: `no pending request ${reqId}` },
+    })
+  }
+
+  const responsePath = path.join(inputsDir, `${reqId}.response.json`)
+  const payload = {
+    reqId,
+    value,
+    respondedAt: new Date().toISOString(),
+  }
+  // Write atomically (temp + rename) so waitForFile's stableMs check
+  // doesn't read mid-write content.
+  const tmp = `${responsePath}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await promises.writeFile(tmp, JSON.stringify(payload, null, 2), "utf8")
+    await promises.rename(tmp, responsePath)
+  } catch (e) {
+    try {
+      await promises.unlink(tmp)
+    } catch {}
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "write_error", message: e.message },
+    })
+  }
+  return widgetSendJson(res, 200, { ok: true, reqId, responsePath: path.relative(path.resolve(argv.directory), responsePath) })
+}
+
+/**
+ * Serve a per-run log file (stdout.log / stderr.log) live from
+ * content/. Cache-control is no-store so the browser's tail loop sees
+ * each new chunk written by the streamed subprocess output.
+ */
+async function handleRuntimeLogGet(req, res, argv, urlPath) {
+  const contentRoot = path.resolve(argv.directory)
+  const rel = urlPath.replace(new RegExp(`^${argv.baseDir || ""}/?`), "")
+  const candidate = path.resolve(contentRoot, rel)
+  if (!candidate.startsWith(contentRoot + path.sep)) {
+    res.writeHead(403)
+    res.end("forbidden")
+    return
+  }
+  try {
+    const buf = await promises.readFile(candidate)
+    res.writeHead(200, {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store, no-cache, must-revalidate",
+      "pragma": "no-cache",
+    })
+    res.end(buf)
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      // Not-yet-created log file is normal — the subprocess may have
+      // just been spawned. Return empty 200 so the client can keep
+      // tailing without exception-handling 404s in a hot loop.
+      res.writeHead(200, {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "no-store",
+      })
+      res.end("")
+      return
+    }
+    res.writeHead(500)
+    res.end(String(e.message || e))
+  }
+}
+
+/**
+ * Workspace-scoped list of in-flight runs. A run is "active" iff its
+ * directory exists but result.json doesn't (yet). Used by the browser
+ * to discover the runId(s) it should tail logs for during a Run click.
+ */
+async function handleWorkflowActiveRuns(req, res, argv) {
+  const url = new URL(req.url, "http://localhost")
+  const workspaceId = String(url.searchParams.get("workspaceId") || "").trim()
+  if (!workspaceId || !isSafeWorkspaceId(workspaceId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_workspace", message: "invalid workspaceId" },
+    })
+  }
+  const contentRoot = path.resolve(argv.directory)
+  const runsRoot = path.resolve(contentRoot, `${workspaceId}.runtime`, "runs")
+  let entries = []
+  try {
+    entries = await promises.readdir(runsRoot)
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      return widgetSendJson(res, 200, { ok: true, runs: [] })
+    }
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "read_error", message: e.message },
+    })
+  }
+  const runs = []
+  for (const runId of entries) {
+    if (!isSafeRunId(runId)) continue
+    const runDir = path.join(runsRoot, runId)
+    const resultPath = path.join(runDir, "result.json")
+    let active = true
+    try {
+      await promises.access(resultPath)
+      active = false
+    } catch {}
+    if (!active) continue
+    // Carry stat info so the browser can sort newest-first if it cares.
+    let startedAt = null
+    try {
+      const stat = await promises.stat(runDir)
+      startedAt = stat.birthtime?.toISOString() ?? stat.mtime.toISOString()
+    } catch {}
+    runs.push({ runId, startedAt })
+  }
+  runs.sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))
+  return widgetSendJson(res, 200, { ok: true, runs })
+}
+
+/**
+ * Recent runs index — completed AND active. For each, includes whatever
+ * artifacts are already on disk: result.json content (if the run
+ * finished), exitCode (parsed from result.json), and the byte-size of
+ * stdout.log. Used by the widget's mount-time auto-restore so a previous
+ * run's result re-appears in the inline panel after navigation.
+ */
+async function handleWorkflowRuns(req, res, argv) {
+  const url = new URL(req.url, "http://localhost")
+  const workspaceId = String(url.searchParams.get("workspaceId") || "").trim()
+  const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") ?? 10) || 10))
+  if (!workspaceId || !isSafeWorkspaceId(workspaceId)) {
+    return widgetSendJson(res, 400, {
+      ok: false,
+      error: { code: "bad_workspace", message: "invalid workspaceId" },
+    })
+  }
+  const contentRoot = path.resolve(argv.directory)
+  const runtimeRoot = path.resolve(contentRoot, `${workspaceId}.runtime`)
+  const runsRoot = path.join(runtimeRoot, "runs")
+  let entries = []
+  try {
+    entries = await promises.readdir(runsRoot)
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      return widgetSendJson(res, 200, { ok: true, runs: [] })
+    }
+    return widgetSendJson(res, 500, {
+      ok: false,
+      error: { code: "read_error", message: e.message },
+    })
+  }
+  const candidates = entries
+    .filter((id) => isSafeRunId(id))
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, limit)
+
+  const runs = []
+  for (const runId of candidates) {
+    const runDir = path.join(runsRoot, runId)
+    let startedAt = null
+    try {
+      const stat = await promises.stat(runDir)
+      startedAt = stat.birthtime?.toISOString() ?? stat.mtime.toISOString()
+    } catch {}
+    let result = null
+    let resultMtime = null
+    try {
+      const text = await promises.readFile(path.join(runDir, "result.json"), "utf8")
+      result = JSON.parse(text)
+      const rs = await promises.stat(path.join(runDir, "result.json"))
+      resultMtime = rs.mtime.toISOString()
+    } catch {}
+    let stdoutBytes = 0
+    try {
+      const s = await promises.stat(path.join(runDir, "stdout.log"))
+      stdoutBytes = s.size
+    } catch {}
+    const status = result === null ? "running" : (result.ok ? "done" : "errored")
+    runs.push({
+      runId,
+      startedAt,
+      status,
+      exitCode: result?.error ? 1 : (result?.ok ? 0 : null),
+      result,
+      resultMtime,
+      stdoutBytes,
+    })
+  }
+  return widgetSendJson(res, 200, { ok: true, runs })
+}
+
+/**
+ * Serve a widget data file (a *.json sitting in a *.runtime/ directory)
+ * directly from `content/`, bypassing the static-build cache. This is the
+ * read side of the same path the widget writes to via /api/widget/write:
+ * the build pipeline ignores .runtime/ changes (to avoid SPA-reloads on
+ * every drag), so without this handler the served file in public/ stays
+ * frozen at server-start state.
+ *
+ * Defense: re-resolve the path under contentRoot and reject anything that
+ * escapes (no .., no absolute paths, no symlink shenanigans).
+ */
+async function handleRuntimeJsonGet(req, res, argv, urlPath) {
+  const contentRoot = path.resolve(argv.directory)
+  // urlPath is everything before "?"; strip baseDir, leading slash.
+  const rel = urlPath.replace(new RegExp(`^${argv.baseDir || ""}/?`), "")
+  const candidate = path.resolve(contentRoot, rel)
+  if (!candidate.startsWith(contentRoot + path.sep)) {
+    res.writeHead(403)
+    res.end("forbidden")
+    return
+  }
+  try {
+    const buf = await promises.readFile(candidate)
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      // Disable caching aggressively — the widget already passes
+      // cache: "no-cache" but a stale 200 in the browser memory cache
+      // (after a back/forward nav) would defeat the whole point.
+      "cache-control": "no-store, no-cache, must-revalidate",
+      "pragma": "no-cache",
+    })
+    res.end(buf)
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      res.writeHead(404)
+      res.end("not found")
+      return
+    }
+    res.writeHead(500)
+    res.end(String(e.message || e))
+  }
 }

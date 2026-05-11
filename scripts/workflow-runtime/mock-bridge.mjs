@@ -14,6 +14,23 @@ export function createMockBridge() {
   const agents = new Map()
   /** @type {Array<{ sessionId: string; prompt: string; at: number }>} */
   const log = []
+  // Role-keyed registrations used by the ticket endpoints. When a ticket
+  // for role X gets filed and no live session is currently bound to X,
+  // we auto-spawn one and wire its agent handler from this map. Mirrors
+  // bridge's auto_spawn semantics narrowly enough for client tests.
+  /** @type {Map<string, AgentHandler>} */
+  const roleAgents = new Map()
+  /** @type {Map<string, MockTicket>} */
+  const tickets = new Map()
+  /**
+   * @typedef {Object} MockTicket
+   * @property {string} id
+   * @property {string} status   // open | complete | cancelled
+   * @property {string} assigneeRoleId
+   * @property {string} assigneeSessionId
+   * @property {string} summary
+   * @property {Array<{ kind: string; sessionId?: string }>} events
+   */
 
   /**
    * @typedef {Object} MockSession
@@ -55,6 +72,15 @@ export function createMockBridge() {
   function setAgent(sessionId, handler) {
     agents.set(sessionId, handler)
     ensureSession(sessionId)
+  }
+
+  /**
+   * Register an auto-spawn handler for a role. When a ticket comes in
+   * with `assigneeRoleId === role`, the mock spins up a fresh session
+   * bound to this handler and reports the spawn back on the ticket.
+   */
+  function setRoleAgent(role, handler) {
+    roleAgents.set(role, handler)
   }
 
   function readBody(req) {
@@ -177,6 +203,92 @@ export function createMockBridge() {
         return sendJson(res, 200, { sessionId: id, state: "waiting_input", facts: {}, agent: body.agent })
       }
 
+      // POST /api/tickets — file a ticket. Auto-spawn a session if a role
+      // handler is registered; otherwise return the ticket with no
+      // assignee (mirrors real bridge "no_assignee" delivery status).
+      if (method === "POST" && urlPath === "/api/tickets") {
+        const body = await readBody(req)
+        const role = String(body.assigneeRoleId || body.suggestedAssignee || "").trim()
+        const id = `tkt-mock-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        /** @type {MockTicket} */
+        const ticket = {
+          id,
+          status: "open",
+          assigneeRoleId: role,
+          assigneeSessionId: "",
+          summary: String(body.summary || ""),
+          events: [],
+        }
+        let deliveryStatus = "no_assignee"
+        const handler = roleAgents.get(role)
+        if (handler) {
+          const sid = `mock-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`
+          const s = ensureSession(sid)
+          s.autoSpawnedFor = id
+          s.autoSpawned = true
+          agents.set(sid, handler)
+          ticket.assigneeSessionId = sid
+          ticket.events.push({ kind: "auto_spawned", sessionId: sid })
+          deliveryStatus = "delivered"
+        }
+        tickets.set(id, ticket)
+        return sendJson(res, 201, {
+          ok: true,
+          ticket,
+          delivery: body.awaitDelivery
+            ? { status: deliveryStatus, attempts: 0, ms: 0 }
+            : undefined,
+        })
+      }
+
+      // GET /api/tickets/:id
+      const ticketGetMatch = urlPath.match(/^\/api\/tickets\/([^/]+)$/)
+      if (method === "GET" && ticketGetMatch) {
+        const tid = decodeURIComponent(ticketGetMatch[1])
+        const t = tickets.get(tid)
+        if (!t) return sendJson(res, 404, { ok: false, error: "no such ticket" })
+        return sendJson(res, 200, { ok: true, ticket: t })
+      }
+
+      // POST /api/tickets/:id/complete
+      const completeMatch = urlPath.match(/^\/api\/tickets\/([^/]+)\/complete$/)
+      if (method === "POST" && completeMatch) {
+        const tid = decodeURIComponent(completeMatch[1])
+        const t = tickets.get(tid)
+        if (!t) return sendJson(res, 404, { ok: false, error: "no such ticket" })
+        if (t.status !== "open") {
+          return sendJson(res, 409, { ok: false, error: `ticket ${tid} is ${t.status}` })
+        }
+        t.status = "complete"
+        // Sweep any sessions scoped to this ticket.
+        for (const s of sessions.values()) {
+          if (s.autoSpawnedFor === tid) {
+            sessions.delete(s.sessionId)
+            agents.delete(s.sessionId)
+          }
+        }
+        return sendJson(res, 200, { ok: true, ticket: t })
+      }
+
+      // POST /api/tickets/:id/cancel — same sweep behavior as complete.
+      const cancelMatch = urlPath.match(/^\/api\/tickets\/([^/]+)\/cancel$/)
+      if (method === "POST" && cancelMatch) {
+        const tid = decodeURIComponent(cancelMatch[1])
+        const t = tickets.get(tid)
+        if (!t) return sendJson(res, 404, { ok: false, error: "no such ticket" })
+        if (t.status !== "open") {
+          return sendJson(res, 409, { ok: false, error: `ticket ${tid} is ${t.status}` })
+        }
+        t.status = "cancelled"
+        for (const s of sessions.values()) {
+          if (s.autoSpawnedFor === tid) {
+            sessions.delete(s.sessionId)
+            agents.delete(s.sessionId)
+          }
+        }
+        return sendJson(res, 200, { ok: true, ticket: t })
+      }
+
       sendJson(res, 404, { ok: false, error: `no such route ${method} ${urlPath}` })
     } catch (e) {
       sendJson(res, 500, { ok: false, error: String(e?.message || e) })
@@ -209,8 +321,11 @@ export function createMockBridge() {
     start,
     stop,
     setAgent,
+    setRoleAgent,
     sessions,
     agents,
+    roleAgents,
+    tickets,
     log,
     ensureSession,
   }

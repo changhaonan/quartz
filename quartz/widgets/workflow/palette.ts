@@ -7,6 +7,7 @@ import type { ComponentType } from "react"
 import {
   Brain,
   GitBranch,
+  Keyboard,
   Layers,
   MessageCircle,
   Network,
@@ -21,6 +22,7 @@ export interface WorkflowPaletteEntry {
     | "llm"
     | "ask"
     | "spawn"
+    | "input"
     | "branch"
     | "loop"
     | "parallel"
@@ -36,6 +38,7 @@ export interface WorkflowPaletteEntry {
     | "lane"
     | "group"
     | "artifact"
+    | "input"
     | "note"
     | "callout"
     | "label"
@@ -47,6 +50,7 @@ export const WORKFLOW_PALETTE: WorkflowPaletteEntry[] = [
   { type: "spawn", label: "Spawn", color: "violet", Icon: Plus, defaultText: "spawn(role)", visual: "artifact", op: "spawn" },
   { type: "call", label: "Call", color: "cyan", Icon: Play, defaultText: "fn(input)", visual: "process", op: "callFn" },
   { type: "llm", label: "LLM", color: "violet", Icon: Brain, defaultText: "llm(prompt)", visual: "process", op: "llm" },
+  { type: "input", label: "Input", color: "amber", Icon: Keyboard, defaultText: "userInput(text)", visual: "input", op: "userInput" },
   { type: "branch", label: "Branch", color: "rose", Icon: GitBranch, defaultText: "predicate?", visual: "decision", op: "" },
   { type: "loop", label: "Loop", color: "violet", Icon: Layers, defaultText: "for i in N", visual: "stack", op: "" },
   { type: "parallel", label: "Parallel", color: "mint", Icon: Network, defaultText: "Promise.all", visual: "lane", op: "" },

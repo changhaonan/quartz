@@ -82,7 +82,8 @@
       "op": "max",
       "params": {
         "_args.0": "leftDepth",
-        "_args.1": "rightDepth"
+        "_args.1": "rightDepth",
+        "_await": false
       },
       "outputs": [
         "both"
@@ -101,7 +102,8 @@
       "visual": "process",
       "op": "addOne",
       "params": {
-        "_args.0": "both"
+        "_args.0": "both",
+        "_await": false
       },
       "outputs": [
         "result"

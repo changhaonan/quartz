@@ -24,7 +24,20 @@ const edgeTypes = {
 // allocate a fresh object every render and tickle React Flow's prop-change
 // detection, which (in v12) re-evaluates viewport bookkeeping. Pin it once.
 const PRO_OPTIONS = { hideAttribution: true }
-const DEFAULT_FIT_VIEW_OPTIONS = { padding: 0.15, duration: 0 }
+// React Flow's default minZoom is 0.5, which clips wide DAGs (a 7-node
+// research-loop fits at ~0.45×, anything wider needs to go lower).
+// 0.1 gives plenty of headroom for "show everything at once" while
+// keeping unbounded zoom-out from getting silly. maxZoom 2 stays as-is.
+const CANVAS_MIN_ZOOM = 0.1
+const CANVAS_MAX_ZOOM = 2
+// fitView gets its own minZoom so the auto-fit on mount can zoom out
+// past the user's normal scroll-zoom floor when the graph is large.
+const DEFAULT_FIT_VIEW_OPTIONS = {
+  padding: 0.15,
+  duration: 0,
+  minZoom: CANVAS_MIN_ZOOM,
+  maxZoom: 1,
+}
 // Stable initial viewport. We don't pass `fitView` as a prop anymore — see
 // the onInit handler — so RF needs an explicit starting point to render
 // against on mount and (more importantly) on container resize.
@@ -437,7 +450,10 @@ export default function BoardCanvas({
       if (ops.length > 0) onChange(ops)
       window.setTimeout(() => {
         if (reactFlowInstance && typeof reactFlowInstance.fitView === 'function') {
-          reactFlowInstance.fitView({ padding: 0.18, duration: 260 })
+          // Reuse the same generous minZoom as the mount-time fit so a
+          // freshly-laid-out wide DAG actually scales down to fit the
+          // viewport instead of clipping at React Flow's 0.5× default.
+          reactFlowInstance.fitView({ padding: 0.18, duration: 260, minZoom: CANVAS_MIN_ZOOM, maxZoom: 1 })
         }
       }, 50)
     } catch (e) {
@@ -575,6 +591,8 @@ export default function BoardCanvas({
         zoomOnScroll
         defaultViewport={DEFAULT_VIEWPORT}
         fitViewOptions={DEFAULT_FIT_VIEW_OPTIONS}
+        minZoom={CANVAS_MIN_ZOOM}
+        maxZoom={CANVAS_MAX_ZOOM}
         proOptions={PRO_OPTIONS}
       >
         <Background gap={24} size={1} />

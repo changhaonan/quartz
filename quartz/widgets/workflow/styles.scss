@@ -1,24 +1,20 @@
+// Run output / Export TS panel. Sits inline BELOW the canvas (Jupyter-
+// notebook style) rather than floating as a modal overlay — the modal
+// approach broke down once the widget frame got tall enough to require
+// page scroll: the overlay was positioned inside the frame, so scrolling
+// the article slid the overlay's top edge off-screen and the user saw
+// only the bottom half clipped at the article boundary. Inline + part
+// of the frame's flex-column means the panel scrolls with the page
+// naturally and never gets visually orphaned.
 .workflow-board__code-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
+  border-top: 1px solid var(--lightgray);
+  background: var(--light);
 }
 
 .workflow-board__code-panel {
-  width: min(720px, 92%);
-  max-height: 80%;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--light);
-  border: 1px solid var(--lightgray);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
-  overflow: hidden;
 }
 
 .workflow-board__code-header {
@@ -53,14 +49,109 @@
 }
 
 .workflow-board__code-body {
-  flex: 1;
   margin: 0;
   padding: 0.9rem 1rem;
+  max-height: 360px; // long results scroll inside the panel instead of
+                     // growing the whole frame to e.g. 2000px tall
   overflow: auto;
   font-family: var(--codeFont, monospace);
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--dark);
   background: var(--light);
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// Live stdout tail shown above the input form / result body while a
+// workflow run is in flight. Each ask / userInput / ticket primitive
+// emits a single console.log line so the user sees per-step progress.
+.workflow-board__progress-tail {
+  margin: 0;
+  padding: 0.7rem 1rem;
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--codeFont, monospace);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--gray);
+  background: color-mix(in srgb, var(--secondary) 8%, var(--light));
+  border-bottom: 1px solid var(--lightgray);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// Gradio-style human-in-the-loop input form. Sits inside the same overlay
+// the run-output panel uses, but stacks one labeled field per pending
+// userInput() request and waits for Enter / click-Submit.
+.workflow-board__input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  overflow: auto;
+  flex: 1;
+}
+
+.workflow-board__input-row {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  align-items: center;
+  gap: 0.55rem 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--lightgray);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--light) 75%, transparent);
+
+  .workflow-board__input-label {
+    color: var(--dark);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .workflow-board__input-field {
+    width: 100%;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--lightgray);
+    border-radius: 6px;
+    background: var(--light);
+    color: var(--dark);
+    font-family: inherit;
+    font-size: 0.85rem;
+
+    &:focus {
+      outline: 2px solid color-mix(in srgb, var(--secondary) 60%, transparent);
+      outline-offset: 1px;
+      border-color: var(--secondary);
+    }
+
+    &[type="checkbox"] {
+      width: 1.05rem;
+      height: 1.05rem;
+      justify-self: start;
+    }
+  }
+
+  .workflow-board__input-submit {
+    border: 0;
+    background: var(--secondary);
+    color: var(--light);
+    padding: 0.42rem 0.85rem;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: filter 80ms ease;
+
+    &:hover {
+      filter: brightness(1.08);
+    }
+  }
+
+  .workflow-board__input-help {
+    grid-column: 2 / 4;
+    color: var(--secondary);
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
 }

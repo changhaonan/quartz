@@ -246,4 +246,55 @@ export interface RuntimeContext {
   defaultBridge: BridgeEndpoint
   /** Workspace id used for path resolution when none provided per call. */
   workspaceId?: string
+  /**
+   * Absolute path to this run's artifact directory
+   * (.../runs/&lt;runId&gt;). Set by the run-driver so primitives like
+   * `userInput` can drop request/response files here for the browser to
+   * pick up. Optional — workflows invoked outside the run-driver (tests,
+   * one-shot scripts) won't have it.
+   */
+  runDir?: string
+  /**
+   * Tickets the workflow has filed and not yet completed. Populated by
+   * `fileTicket` and drained by the run-driver's finally block via
+   * `releaseAllOpenTickets`. Map shape rather than Set so the cleanup
+   * code has the bridge endpoint each ticket lives on.
+   */
+  openTickets?: Map<string, import("./tickets.ts").TicketHandle>
+}
+
+// ─── Human-in-the-loop input ───────────────────────────────────────────
+
+export type UserInputType = "text" | "number" | "select" | "boolean"
+
+/**
+ * Spec for a single human-in-the-loop prompt. The Gradio-style form in the
+ * browser renders one of these per pending request and posts the user's
+ * value back as the response.
+ */
+export interface UserInputSpec {
+  /** Widget type to render in the browser. */
+  inputType: UserInputType
+  /** Label shown above the field. Falls back to "input" if omitted. */
+  label?: string
+  /** Default / placeholder value for the field. */
+  default?: string | number | boolean
+  /** When inputType === "select": the choices. */
+  options?: string[]
+  /** Optional help text shown beneath the field. */
+  help?: string
+  /** ms to wait for a response before throwing. Default 600_000 (10min). */
+  timeoutMs?: number
+}
+
+export interface UserInputRequest {
+  reqId: string
+  spec: UserInputSpec
+  requestedAt: string
+}
+
+export interface UserInputResponse {
+  reqId: string
+  value: string | number | boolean
+  respondedAt: string
 }

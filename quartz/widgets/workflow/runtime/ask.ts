@@ -51,6 +51,7 @@ export function setRuntimeContext(ctx: Partial<RuntimeContext>): void {
         baseUrl: process.env.WORKFLOW_BRIDGE_URL || "http://127.0.0.1:3210",
       },
       workspaceId: ctx.workspaceId,
+      runDir: ctx.runDir,
     }
   } else {
     runtimeContext = {
@@ -174,6 +175,10 @@ export async function ask<T = unknown>(
     workspaceId: opts.workspaceId ?? getRuntimeContext().workspaceId,
   }
   const startedAt = Date.now()
+  // Progress log: one line at entry, one at exit. The browser tails
+  // stdout.log so per-ask timings are visible while the run is in
+  // flight (each ask can take 5-60s for real LLMs).
+  console.log(`[ask] → ${sessionId} (${prompt.length} chars prompt)`)
   const expectStates = opts.expectStates ?? DEFAULT_EXPECT_STATES
 
   // Pre-flight
@@ -299,10 +304,12 @@ export async function ask<T = unknown>(
     reply = pickReplyFromState(finalState, opts.extract ?? "lastOutput")
   }
 
+  const durationMs = Date.now() - startedAt
+  console.log(`[ask] ← ${sessionId} (state=${finalState.state}, ${(durationMs / 1000).toFixed(1)}s)`)
   return {
     reply: reply as T,
     state: finalState.state,
-    durationMs: Date.now() - startedAt,
+    durationMs,
     raw: finalState,
     outputFile: absoluteOutputPath,
   }

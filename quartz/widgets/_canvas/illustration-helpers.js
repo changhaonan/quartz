@@ -27,6 +27,13 @@ export const ILLUSTRATION_NODE_TYPE_META = {
     width: 266,
     height: 138,
   },
+  input: {
+    id: 'input',
+    label: 'Input',
+    description: 'Human-in-the-loop form field — pauses the run for user input.',
+    width: 264,
+    height: 124,
+  },
   lane: {
     id: 'lane',
     label: 'Lane',

@@ -29,7 +29,7 @@ export function resolveBridge(ref?: BridgeRef): BridgeEndpoint {
   return ref
 }
 
-async function bridgeFetch(
+export async function bridgeFetch(
   endpoint: BridgeEndpoint,
   method: string,
   pathName: string,
@@ -53,7 +53,7 @@ async function bridgeFetch(
   })
 }
 
-async function asJson<T>(res: Response, label: string): Promise<T> {
+export async function asJson<T>(res: Response, label: string): Promise<T> {
   if (!res.ok) {
     let bodyText = ""
     try {
@@ -79,7 +79,14 @@ export async function getSessionState(
     "GET",
     `/api/sessions/${encodeURIComponent(sessionId)}`,
   )
-  return asJson<SessionState>(res, "getSessionState")
+  const data = await asJson<
+    | SessionState
+    | { ok?: boolean; session?: SessionState }
+  >(res, "getSessionState")
+  // Real bridge wraps the session record under `session`; mock bridges
+  // (test fixtures) return the flat SessionState shape. Accept both.
+  const wrapped = (data as { session?: SessionState }).session
+  return wrapped ?? (data as SessionState)
 }
 
 // ─── Session writes ───────────────────────────────────────────────────
@@ -139,11 +146,21 @@ export async function createSession(
   spec: Record<string, unknown>,
 ): Promise<{ sessionId: string; raw: SessionState }> {
   const res = await bridgeFetch(endpoint, "POST", "/api/sessions", spec)
-  const data = await asJson<SessionState & { sessionId?: string }>(
-    res,
-    "createSession",
-  )
-  const sessionId = data.sessionId ?? (data as { id?: string }).id
+  const data = await asJson<
+    SessionState & {
+      sessionId?: string
+      session?: SessionState & { sessionId?: string }
+    }
+  >(res, "createSession")
+  // Bridge wraps the created session under `session` (since some point on
+  // the bridge side); the older shape returned it at the top level.
+  // Mock bridges in tests still return the flat shape. Accept both.
+  const wrapped = data.session
+  const sessionId =
+    data.sessionId ??
+    wrapped?.sessionId ??
+    (data as { id?: string }).id ??
+    (wrapped as unknown as { id?: string } | undefined)?.id
   if (!sessionId || typeof sessionId !== "string") {
     throw new WorkflowRuntimeError(
       `createSession: bridge returned no sessionId`,
@@ -151,7 +168,35 @@ export async function createSession(
       { data },
     )
   }
-  return { sessionId, raw: data }
+  return { sessionId, raw: (wrapped as SessionState) ?? (data as SessionState) }
+}
+
+/**
+ * Close a session via DELETE /api/sessions/:id. Used by the workflow
+ * runtime when the run finishes and any sessions it spawned should be
+ * reaped. Idempotent: a 404 means the session is already gone (someone
+ * else closed it, or it crashed), which the caller treats as success.
+ */
+export async function closeSession(
+  endpoint: BridgeEndpoint,
+  sessionId: string,
+): Promise<void> {
+  const res = await bridgeFetch(
+    endpoint,
+    "DELETE",
+    `/api/sessions/${encodeURIComponent(sessionId)}`,
+  )
+  if (!res.ok && res.status !== 404) {
+    let body = ""
+    try {
+      body = await res.text()
+    } catch {}
+    throw new WorkflowRuntimeError(
+      `closeSession failed: ${res.status} ${res.statusText} :: ${body.slice(0, 200)}`,
+      `bridge_http_${res.status}`,
+      { sessionId },
+    )
+  }
 }
 
 // ─── Polling helper ───────────────────────────────────────────────────

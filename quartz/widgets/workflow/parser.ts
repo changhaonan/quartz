@@ -151,6 +151,59 @@ function paramsFromArgs(argTexts: string[]): Record<string, string> {
   return out
 }
 
+/**
+ * Pull recognized fields out of an object-literal expression and convert
+ * them into JSON-shaped values for storage in a node's params. Used by
+ * input-node parsing — `userInput({ inputType: "text", label: "..." })`
+ * needs its single object-literal arg lifted into individual params keys
+ * so codegen can re-emit it without a separate _args-style passthrough.
+ */
+function liftObjectLiteralParams(
+  obj: ts.ObjectLiteralExpression,
+  source: ts.SourceFile,
+  allowedKeys: readonly string[],
+): Record<string, string | number | boolean | null | string[]> {
+  const out: Record<string, string | number | boolean | null | string[]> = {}
+  const allowed = new Set(allowedKeys)
+  for (const prop of obj.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue
+    let key: string
+    if (ts.isIdentifier(prop.name)) key = prop.name.text
+    else if (ts.isStringLiteral(prop.name)) key = prop.name.text
+    else continue
+    if (!allowed.has(key)) continue
+    const v = prop.initializer
+    if (ts.isStringLiteral(v) || ts.isNoSubstitutionTemplateLiteral(v)) {
+      out[key] = v.text
+    } else if (ts.isNumericLiteral(v)) {
+      out[key] = Number(v.text)
+    } else if (v.kind === ts.SyntaxKind.TrueKeyword) {
+      out[key] = true
+    } else if (v.kind === ts.SyntaxKind.FalseKeyword) {
+      out[key] = false
+    } else if (v.kind === ts.SyntaxKind.NullKeyword) {
+      out[key] = null
+    } else if (ts.isArrayLiteralExpression(v)) {
+      // Only string-array options round-trip cleanly through the schema.
+      // Non-string elements get stringified to keep the shape consistent.
+      const items: string[] = []
+      for (const el of v.elements) {
+        if (ts.isStringLiteral(el) || ts.isNoSubstitutionTemplateLiteral(el)) {
+          items.push(el.text)
+        } else {
+          items.push(el.getText(source))
+        }
+      }
+      out[key] = items
+    } else {
+      // Fall back to the verbatim text — useful for `default: someVar`
+      // expressions we don't try to resolve.
+      out[key] = v.getText(source)
+    }
+  }
+  return out
+}
+
 function declaredOutputNames(decl: ts.VariableDeclaration): string[] {
   if (ts.isIdentifier(decl.name)) return [decl.name.text]
   if (ts.isObjectBindingPattern(decl.name)) {
@@ -228,6 +281,50 @@ function walkVariableStatement(
   if (call) {
     const outputs = declaredOutputNames(decl)
     const id = nextNodeId(ctx, call.callee.replace(/[^A-Za-z0-9_$]/g, "_"))
+
+    // Special case: userInput({ ... }) → kind:"input" with the spec lifted
+    // into params. We intercept here (rather than letting the generic call
+    // pathway run) because codegen renders input nodes from individual spec
+    // keys, not from _args.N text — without lifting, round-trip would emit
+    // `userInput({}, ...)` losing the spec.
+    const calleeBareEarly = call.callee.split(".").pop() ?? call.callee
+    if (calleeBareEarly === "userInput") {
+      const params: Record<string, string | number | boolean | null | string[]> = {}
+      const arg0 = call.args[0]
+      if (arg0 && ts.isObjectLiteralExpression(arg0)) {
+        Object.assign(
+          params,
+          liftObjectLiteralParams(arg0, ctx.source, [
+            "inputType",
+            "label",
+            "default",
+            "options",
+            "help",
+            "timeoutMs",
+          ]),
+        )
+      }
+      ctx.nodes.push(
+        makeBaseNode(
+          {
+            id,
+            kind: "input",
+            visual: "input",
+            op: "userInput",
+            outputs,
+            color: "amber",
+            containerId,
+            params: params as WorkflowNode["params"],
+          },
+          ctx.nodes.length,
+        ),
+      )
+      for (const name of outputs) {
+        ctx.bindings.set(name, { nodeId: id, outputName: name })
+      }
+      return { nodeId: id }
+    }
+
     // Map well-known callee names to their dedicated kinds. These all imply
     // `await` already so we don't also set _await.
     const kindByCallee: Record<string, "ask" | "spawn" | "llm" | "call"> = {
@@ -260,10 +357,13 @@ function walkVariableStatement(
     const { argTexts } = emitArgEdges(ctx, id, call.args)
     const node = ctx.nodes[ctx.nodes.length - 1]
     Object.assign(node.params, paramsFromArgs(argTexts))
-    // Only mark _await for plain `call` kinds — ask/llm/spawn already imply
-    // await via their dedicated kinds, so the codegen doesn't need a hint.
-    if (call.awaited && finalKind === "call") {
-      ;(node.params as Record<string, unknown>)._await = true
+    // Codegen defaults to `await ` for every callable; `_await: false`
+    // turns it off. For round-trip fidelity we record the parser's
+    // observation explicitly: if the source had `await`, leave _await
+    // unset (codegen will await anyway); if it didn't, pin _await: false
+    // so codegen reproduces the missing `await` instead of inserting one.
+    if (finalKind === "call" && !call.awaited) {
+      ;(node.params as Record<string, unknown>)._await = false
     }
     for (const name of outputs) {
       ctx.bindings.set(name, { nodeId: id, outputName: name })

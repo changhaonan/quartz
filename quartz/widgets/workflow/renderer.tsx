@@ -142,12 +142,20 @@ function translatePatch(
 }
 
 function newWorkflowNodeFromPaletteEntry(entry: WorkflowPaletteEntry): WorkflowNode {
+  // Seed sensible defaults so a freshly-dragged node generates runnable
+  // code immediately. Input nodes in particular need an inputType + label
+  // for the Gradio form to render a meaningful prompt.
+  const params: Record<string, unknown> = {}
+  if (entry.type === "input") {
+    params.inputType = "text"
+    params.label = "Input"
+  }
   return {
     id: `workflow-node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     kind: entry.type as WorkflowNode["kind"],
     visual: entry.visual as WorkflowNode["visual"],
     op: entry.op,
-    params: {},
+    params: params as WorkflowNode["params"],
     outputs: [entry.type === "branch" || entry.type === "loop" ? "" : "out"].filter(Boolean) as string[],
     containerId: "",
     x: 0,
@@ -245,6 +253,180 @@ function toolbarRightCluster(
     runButtonElement(onRun, running),
     exportButtonElement(onExport),
   )
+}
+
+// ─── Run panel state types + form helpers ─────────────────────────────
+
+interface UserInputSpec {
+  inputType: "text" | "number" | "select" | "boolean"
+  label?: string
+  default?: string | number | boolean
+  options?: string[]
+  help?: string
+  timeoutMs?: number
+}
+
+interface PendingInputRequest {
+  reqId: string
+  runId?: string
+  requestedAt?: string
+  spec: UserInputSpec
+}
+
+type RunPanelState =
+  | { kind: "idle" }
+  | { kind: "running" }
+  | { kind: "input" }
+  | { kind: "done"; payload: unknown }
+  | { kind: "error"; message: string }
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function sameRequests(a: PendingInputRequest[], b: PendingInputRequest[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].reqId !== b[i].reqId) return false
+  }
+  return true
+}
+
+function runPanelBodyText(state: RunPanelState): string {
+  if (state.kind === "running") return "Running workflow…"
+  if (state.kind === "input") return "Waiting for input."
+  if (state.kind === "error") return state.message
+  if (state.kind === "done") {
+    const p = (state.payload ?? {}) as {
+      ok?: boolean
+      runId?: string
+      runDir?: string
+      exitCode?: number
+      timedOut?: boolean
+      stdout?: string
+      stderr?: string
+      result?: unknown
+    }
+    const lines: string[] = []
+    lines.push(`runId: ${p.runId ?? "?"}`)
+    lines.push(`runDir: ${p.runDir ?? "?"}`)
+    lines.push(`exitCode: ${p.exitCode ?? "?"}${p.timedOut ? " (timed out)" : ""}`)
+    if (p.result !== undefined) {
+      lines.push("")
+      lines.push("--- result ---")
+      lines.push(typeof p.result === "string" ? p.result : JSON.stringify(p.result, null, 2))
+    }
+    if (p.stdout) {
+      lines.push("")
+      lines.push("--- stdout ---")
+      lines.push(p.stdout)
+    }
+    if (p.stderr) {
+      lines.push("")
+      lines.push("--- stderr ---")
+      lines.push(p.stderr)
+    }
+    return lines.join("\n")
+  }
+  return ""
+}
+
+/**
+ * Build the Gradio-style form for a single pending userInput() request.
+ * Renders the appropriate widget for `spec.inputType` and wires Enter
+ * (or click on Submit) to call onSubmit(reqId, value).
+ *
+ * `carriedValue` is the field's value from the prior redraw — preserved
+ * across poll-triggered re-renders so typing isn't lost.
+ */
+function buildInputForm(
+  req: PendingInputRequest,
+  carriedValue: string | undefined,
+  onSubmit: (reqId: string, value: string | number | boolean) => void,
+): HTMLElement {
+  const root = document.createElement("div")
+  root.className = "workflow-board__input-row"
+  root.dataset.reqId = req.reqId
+
+  const labelText = req.spec.label || req.spec.inputType
+  const label = document.createElement("label")
+  label.className = "workflow-board__input-label"
+  label.textContent = labelText
+  root.appendChild(label)
+
+  let field: HTMLInputElement | HTMLSelectElement
+  if (req.spec.inputType === "select") {
+    const sel = document.createElement("select")
+    sel.className = "workflow-board__input-field"
+    for (const opt of req.spec.options ?? []) {
+      const o = document.createElement("option")
+      o.value = opt
+      o.textContent = opt
+      sel.appendChild(o)
+    }
+    if (carriedValue !== undefined) sel.value = carriedValue
+    else if (req.spec.default !== undefined) sel.value = String(req.spec.default)
+    field = sel
+  } else if (req.spec.inputType === "boolean") {
+    const cb = document.createElement("input")
+    cb.type = "checkbox"
+    cb.className = "workflow-board__input-field"
+    if (carriedValue !== undefined) cb.checked = carriedValue === "true"
+    else cb.checked = req.spec.default === true
+    field = cb
+  } else if (req.spec.inputType === "number") {
+    const n = document.createElement("input")
+    n.type = "number"
+    n.className = "workflow-board__input-field"
+    n.value = carriedValue ?? (req.spec.default != null ? String(req.spec.default) : "")
+    field = n
+  } else {
+    const t = document.createElement("input")
+    t.type = "text"
+    t.className = "workflow-board__input-field"
+    t.value = carriedValue ?? (req.spec.default != null ? String(req.spec.default) : "")
+    field = t
+  }
+  field.dataset.reqId = req.reqId
+
+  // Enter submits for single-line inputs. Shift+Enter would be a natural
+  // multi-line hook later, but our v1 inputs are all single-value.
+  field.addEventListener("keydown", (e) => {
+    const ke = e as KeyboardEvent
+    if (ke.key === "Enter" && !ke.shiftKey) {
+      e.preventDefault()
+      submit()
+    }
+  })
+  root.appendChild(field)
+
+  if (req.spec.help) {
+    const help = document.createElement("div")
+    help.className = "workflow-board__input-help"
+    help.textContent = req.spec.help
+    root.appendChild(help)
+  }
+
+  const btn = document.createElement("button")
+  btn.type = "button"
+  btn.className = "workflow-board__input-submit"
+  btn.textContent = "Submit"
+  btn.addEventListener("click", submit)
+  root.appendChild(btn)
+
+  function submit() {
+    let value: string | number | boolean
+    if (field instanceof HTMLInputElement) {
+      if (field.type === "checkbox") value = field.checked
+      else if (field.type === "number") value = field.value === "" ? 0 : Number(field.value)
+      else value = field.value
+    } else {
+      value = (field as HTMLSelectElement).value
+    }
+    onSubmit(req.reqId, value)
+  }
+
+  return root
 }
 
 export function mountWorkflowBoard(
@@ -364,48 +546,199 @@ export function mountWorkflowBoard(
   }
 
   let running = false
+  // Active poll cycle for human-in-the-loop input prompts. While a run is
+  // in flight, this fires every ~500ms, asks the server for any pending
+  // userInput() requests, and renders a Gradio-style form for them.
+  let pollAbort: AbortController | null = null
+  let pendingRequests: PendingInputRequest[] = []
+  // Snapshot of the runs we've already returned answers for, so submitted
+  // forms disappear immediately without waiting for the next poll cycle
+  // (and don't reappear if the server hasn't observed the response yet).
+  let optimisticallyResolved = new Set<string>()
+  // Live progress tail. While a run is in flight, /api/workflow/active-runs
+  // tells us which run dir to look at; we then fetch its stdout.log every
+  // ~1s and surface the most recent lines above the result/form area.
+  let progressTail: string = ""
+  let activeRunId: string | null = null
+  // Single source of truth for what the Run overlay currently shows.
+  let runPanelState: RunPanelState = { kind: "idle" }
+
   const handleRun = async () => {
     if (running) return
     if (!ctx.capabilities.workspaceId) {
-      showRunPanel("error", "No workspaceId — set frontmatter `workspaceId: <id>` on the page.")
+      runPanelState = {
+        kind: "error",
+        message: "No workspaceId — set frontmatter `workspaceId: <id>` on the page.",
+      }
+      drawRunPanel()
       return
     }
+    const workspaceId = ctx.capabilities.workspaceId
     const gen = generateWorkflowSource(currentData, { entryName: "workflow" })
     if (gen.warnings.length > 0) {
       console.warn("[workflow-board] codegen warnings:", gen.warnings)
     }
     running = true
     renderRoot()
-    showRunPanel("running", "Running workflow…")
+    pendingRequests = []
+    optimisticallyResolved = new Set<string>()
+    progressTail = ""
+    activeRunId = null
+    runPanelState = { kind: "running" }
+    drawRunPanel()
+
+    pollAbort = new AbortController()
+    void pollPendingInputs(workspaceId, pollAbort.signal)
+    void pollProgress(workspaceId, pollAbort.signal)
+
     let res: Response
     try {
       res = await fetch("/api/workflow/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          workspaceId: ctx.capabilities.workspaceId,
+          workspaceId,
           source: gen.source,
           entryName: "workflow",
           entryParams: [],
+          // 30min upper bound — comfortably above the runtime's default
+          // userInput timeout (10min) so a slow human doesn't make the
+          // subprocess hang and the HTTP connection both fail at once.
+          timeoutMs: 30 * 60_000,
         }),
       })
     } catch (e) {
+      pollAbort?.abort()
+      pollAbort = null
       running = false
       renderRoot()
-      showRunPanel("error", `Network error: ${(e as Error).message}`)
+      runPanelState = { kind: "error", message: `Network error: ${(e as Error).message}` }
+      drawRunPanel()
       return
     }
     let body: unknown = null
     try {
       body = await res.json()
     } catch {}
+    pollAbort?.abort()
+    pollAbort = null
+    pendingRequests = []
     running = false
     renderRoot()
-    if (!res.ok) {
-      showRunPanel("error", JSON.stringify(body, null, 2))
-      return
+    runPanelState = res.ok
+      ? { kind: "done", payload: body }
+      : { kind: "error", message: JSON.stringify(body, null, 2) }
+    drawRunPanel()
+  }
+
+  const pollPendingInputs = async (workspaceId: string, signal: AbortSignal) => {
+    const url = `/api/workflow/pending-inputs?workspaceId=${encodeURIComponent(workspaceId)}`
+    while (!signal.aborted) {
+      try {
+        const r = await fetch(url, { signal })
+        if (r.ok) {
+          const j = (await r.json()) as { pending?: PendingInputRequest[] }
+          const next = (j.pending ?? []).filter(
+            (p) => !optimisticallyResolved.has(p.reqId),
+          )
+          // Once the server has written a response.json, it'll drop the
+          // reqId from the next /pending-inputs response. Clear our
+          // optimistic set when that happens so we don't leak memory across
+          // long-running boards.
+          const visibleIds = new Set(next.map((p) => p.reqId))
+          for (const id of Array.from(optimisticallyResolved)) {
+            if (!visibleIds.has(id)) optimisticallyResolved.delete(id)
+          }
+          if (!sameRequests(pendingRequests, next)) {
+            pendingRequests = next
+            // Don't overwrite a final done/error state if the run already
+            // resolved between polls.
+            if (runPanelState.kind === "running" || runPanelState.kind === "input") {
+              runPanelState = {
+                kind: next.length > 0 ? "input" : "running",
+              }
+              drawRunPanel()
+            }
+          }
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return
+        // Transient (network, etc.) — try again next tick.
+      }
+      await sleep(500)
     }
-    showRunPanel("done", body)
+  }
+
+  // Per-run progress tail. Polls /api/workflow/active-runs to discover the
+  // current run's id (the run-handler holds the run-POST open until exit,
+  // so the runId only arrives in the response after everything is done —
+  // we need a sideband to know what to tail). Once we have a runId, fetch
+  // its stdout.log on the same cadence and surface the last N lines.
+  const pollProgress = async (workspaceId: string, signal: AbortSignal) => {
+    const tailLines = 40
+    while (!signal.aborted) {
+      try {
+        if (!activeRunId) {
+          const r = await fetch(
+            `/api/workflow/active-runs?workspaceId=${encodeURIComponent(workspaceId)}`,
+            { signal },
+          )
+          if (r.ok) {
+            const j = (await r.json()) as { runs?: Array<{ runId: string }> }
+            if (j.runs && j.runs.length > 0) {
+              activeRunId = j.runs[0].runId
+            }
+          }
+        }
+        if (activeRunId) {
+          // workspaceId already starts with "workflows/" (e.g.
+          // "workflows/example-ask-ticket") so the URL needs ONE leading
+          // slash, not "/workflows/" — otherwise it doubles up to
+          // /workflows/workflows/... and 404s back as empty 200.
+          const logUrl = `/${workspaceId}.runtime/runs/${activeRunId}/stdout.log`
+          const r = await fetch(logUrl, { signal })
+          if (r.ok) {
+            const text = await r.text()
+            // Filter out the __RUN_OK__ / __RUN_ERR__ sentinels which are
+            // bookkeeping noise, not progress signal.
+            const filtered = text
+              .split("\n")
+              .filter((l) => l && !l.startsWith("__RUN_"))
+              .slice(-tailLines)
+              .join("\n")
+            if (filtered !== progressTail) {
+              progressTail = filtered
+              if (runPanelState.kind === "running" || runPanelState.kind === "input") {
+                drawRunPanel()
+              }
+            }
+          }
+        }
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return
+      }
+      await sleep(1000)
+    }
+  }
+
+  const submitInput = (reqId: string, value: string | number | boolean) => {
+    const req = pendingRequests.find((p) => p.reqId === reqId)
+    if (!req) return
+    optimisticallyResolved.add(reqId)
+    pendingRequests = pendingRequests.filter((p) => p.reqId !== reqId)
+    if (runPanelState.kind === "input" || runPanelState.kind === "running") {
+      runPanelState = { kind: pendingRequests.length > 0 ? "input" : "running" }
+      drawRunPanel()
+    }
+    const workspaceId = ctx.capabilities.workspaceId
+    if (!workspaceId) return
+    void fetch("/api/workflow/input", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId, runId: req.runId, reqId, value }),
+    }).then(async (r) => {
+      if (!r.ok) console.error("[workflow-board] /api/workflow/input failed", await r.text())
+    }).catch((e) => console.error("[workflow-board] /api/workflow/input error", e))
   }
 
   const showCodePanel = (title: string, source: string) => {
@@ -433,84 +766,116 @@ export function mountWorkflowBoard(
     overlay
       .querySelector<HTMLButtonElement>(".workflow-board__code-close")!
       .addEventListener("click", () => overlay.remove())
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) overlay.remove()
-    })
+    // No click-outside-to-dismiss now that the panel is inline; the
+    // Close button is the only way to remove it. Same in drawRunPanel.
     wrap.appendChild(overlay)
   }
 
-  const showRunPanel = (
-    kind: "running" | "done" | "error",
-    payload: unknown,
-  ) => {
-    const existing = wrap.querySelector(".workflow-board__code-overlay")
-    if (existing) existing.remove()
+  // Rebuild the Run overlay from runPanelState + pendingRequests. Called
+  // when the state changes (run started, prompts appeared/were submitted,
+  // run finished). Preserves any text the user has typed into still-visible
+  // input fields by reusing values from the prior DOM.
+  const drawRunPanel = () => {
+    if (runPanelState.kind === "idle") {
+      const existing = wrap.querySelector(".workflow-board__code-overlay")
+      if (existing) existing.remove()
+      return
+    }
+    // Preserve focus and typed values across redraws.
+    const prior = wrap.querySelector(".workflow-board__code-overlay")
+    const carriedValues: Record<string, string> = {}
+    let focusedReqId: string | null = null
+    if (prior) {
+      prior
+        .querySelectorAll<HTMLInputElement | HTMLSelectElement>(".workflow-board__input-field")
+        .forEach((el) => {
+          const id = el.dataset.reqId
+          if (!id) return
+          carriedValues[id] = el instanceof HTMLInputElement && el.type === "checkbox"
+            ? String(el.checked)
+            : el.value
+          if (document.activeElement === el) focusedReqId = id
+        })
+      prior.remove()
+    }
     const overlay = document.createElement("div")
     overlay.className = "workflow-board__code-overlay"
-    let bodyText = ""
-    let title = ""
-    if (kind === "running") {
-      title = "Running…"
-      bodyText = typeof payload === "string" ? payload : ""
-    } else if (kind === "error") {
-      title = "Run failed"
-      bodyText = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)
-    } else {
-      const p = payload as {
-        ok?: boolean
-        runId?: string
-        runDir?: string
-        exitCode?: number
-        timedOut?: boolean
-        stdout?: string
-        stderr?: string
-        result?: unknown
-      } | null
-      const sections: string[] = []
-      sections.push(`runId: ${p?.runId ?? "?"}`)
-      sections.push(`runDir: ${p?.runDir ?? "?"}`)
-      sections.push(`exitCode: ${p?.exitCode ?? "?"}${p?.timedOut ? " (timed out)" : ""}`)
-      if (p?.result !== undefined) {
-        sections.push("")
-        sections.push("--- result ---")
-        sections.push(typeof p.result === "string" ? p.result : JSON.stringify(p.result, null, 2))
-      }
-      if (p?.stdout) {
-        sections.push("")
-        sections.push("--- stdout ---")
-        sections.push(p.stdout)
-      }
-      if (p?.stderr) {
-        sections.push("")
-        sections.push("--- stderr ---")
-        sections.push(p.stderr)
-      }
-      title = p?.ok ? "Run succeeded" : "Run completed with errors"
-      bodyText = sections.join("\n")
-    }
-    overlay.innerHTML = `
-      <div class="workflow-board__code-panel">
-        <div class="workflow-board__code-header">
-          <strong></strong>
-          <button type="button" class="workflow-board__code-copy">Copy</button>
-          <button type="button" class="workflow-board__code-close">Close</button>
-        </div>
-        <pre class="workflow-board__code-body"></pre>
-      </div>
-    `
-    overlay.querySelector("strong")!.textContent = title
-    overlay.querySelector(".workflow-board__code-body")!.textContent = bodyText
-    overlay
-      .querySelector<HTMLButtonElement>(".workflow-board__code-copy")!
-      .addEventListener("click", () => {
-        void navigator.clipboard.writeText(bodyText)
-      })
-    overlay
-      .querySelector<HTMLButtonElement>(".workflow-board__code-close")!
-      .addEventListener("click", () => overlay.remove())
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) overlay.remove()
+    const panel = document.createElement("div")
+    panel.className = "workflow-board__code-panel"
+    overlay.appendChild(panel)
+
+    const header = document.createElement("div")
+    header.className = "workflow-board__code-header"
+    const titleEl = document.createElement("strong")
+    titleEl.textContent =
+      runPanelState.kind === "running"
+        ? "Running…"
+        : runPanelState.kind === "input"
+          ? `Awaiting input (${pendingRequests.length})`
+          : runPanelState.kind === "done"
+            ? ((runPanelState.payload as { ok?: boolean } | null)?.ok
+                ? "Run succeeded"
+                : "Run completed with errors")
+            : "Run failed"
+    header.appendChild(titleEl)
+
+    // Close button — always available so an aborted/error state can be
+    // dismissed without restarting. We don't try to cancel an in-flight
+    // run from here (no abort plumbing yet); the panel just closes.
+    const closeBtn = document.createElement("button")
+    closeBtn.type = "button"
+    closeBtn.className = "workflow-board__code-close"
+    closeBtn.textContent = "Close"
+    closeBtn.addEventListener("click", () => {
+      runPanelState = { kind: "idle" }
+      drawRunPanel()
     })
+    header.appendChild(closeBtn)
+    panel.appendChild(header)
+
+    // Progress tail — shown while running OR awaiting input, so the user
+    // can see what the workflow is doing even when the foreground UI is
+    // a Gradio-style form. Hidden in done/error states because the
+    // result-body pre block carries the full stdout/stderr anyway.
+    if (
+      progressTail &&
+      (runPanelState.kind === "running" || runPanelState.kind === "input")
+    ) {
+      const progressEl = document.createElement("pre")
+      progressEl.className = "workflow-board__progress-tail"
+      progressEl.textContent = progressTail
+      panel.appendChild(progressEl)
+    }
+
+    // Body: either the input form (input/running with pending) or a pre block.
+    if (runPanelState.kind === "input" && pendingRequests.length > 0) {
+      const formArea = document.createElement("div")
+      formArea.className = "workflow-board__input-area"
+      for (const req of pendingRequests) {
+        formArea.appendChild(
+          buildInputForm(req, carriedValues[req.reqId], submitInput),
+        )
+      }
+      panel.appendChild(formArea)
+      if (focusedReqId) {
+        const target = panel.querySelector<HTMLElement>(
+          `.workflow-board__input-field[data-req-id="${CSS.escape(focusedReqId)}"]`,
+        )
+        target?.focus()
+      } else {
+        // Focus the first field of the first pending request — gives the
+        // browser instant typing-readiness so the user can answer the
+        // prompt without first reaching for the mouse.
+        const first = panel.querySelector<HTMLElement>(".workflow-board__input-field")
+        first?.focus()
+      }
+    } else {
+      const pre = document.createElement("pre")
+      pre.className = "workflow-board__code-body"
+      pre.textContent = runPanelBodyText(runPanelState)
+      panel.appendChild(pre)
+    }
+
     wrap.appendChild(overlay)
   }
 
@@ -536,6 +901,61 @@ export function mountWorkflowBoard(
     }
   }
   renderRoot()
+
+  // Auto-restore the most recent run's panel on mount. The previous run's
+  // result.json + stdout.log are persisted on disk under runs/<id>/, so
+  // after navigate-away / refresh / new tab we can re-show the same
+  // inline panel state the user last saw. Skips if there's no prior run
+  // or if the latest one is still in flight (the live-tail path will
+  // pick that up via active-runs polling once Run is clicked again).
+  ;(async () => {
+    const workspaceId = ctx.capabilities.workspaceId
+    if (!workspaceId) return
+    try {
+      const r = await fetch(`/api/workflow/runs?workspaceId=${encodeURIComponent(workspaceId)}&limit=1`)
+      if (!r.ok) return
+      const j = (await r.json()) as {
+        runs?: Array<{
+          runId: string
+          status: string
+          exitCode?: number
+          result?: { ok?: boolean; result?: unknown; error?: { message?: string } }
+          startedAt?: string
+        }>
+      }
+      const latest = j.runs?.[0]
+      if (!latest || latest.status === "running") return
+      if (runPanelState.kind !== "idle") return
+      // Also fetch the run's stdout.log so the restored panel can show
+      // the same per-step trace the live tail would have shown. Best-
+      // effort — if the log is missing the result still restores.
+      let stdoutText = ""
+      try {
+        const lr = await fetch(`/${workspaceId}.runtime/runs/${latest.runId}/stdout.log`)
+        if (lr.ok) stdoutText = await lr.text()
+      } catch {}
+      // The run-handler's response shape is what runPanelBodyText expects;
+      // construct an equivalent from /runs data so the existing renderer
+      // works without a branch.
+      const ok = latest.result?.ok === true
+      runPanelState = {
+        kind: "done",
+        payload: {
+          ok,
+          runId: latest.runId,
+          runDir: `${workspaceId}.runtime/runs/${latest.runId}`,
+          exitCode: latest.exitCode ?? (ok ? 0 : 1),
+          timedOut: false,
+          stdout: stdoutText.replace(/^__RUN_(OK|ERR)__$/gm, "").trim(),
+          stderr: "",
+          result: latest.result?.result ?? latest.result,
+        },
+      }
+      drawRunPanel()
+    } catch {
+      // Best-effort; failing to restore shouldn't break the widget.
+    }
+  })()
 
   return () => {
     root.unmount()

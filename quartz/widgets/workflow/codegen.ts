@@ -158,13 +158,11 @@ function renderCallStatement(
 ): string {
   const op = nodeOpName(node)
   const args = renderCallArgs(node, ctx, entryParams, rootEntryConsumed)
-  const awaitPrefix =
-    node.kind === "llm" ||
-    node.kind === "ask" ||
-    node.kind === "spawn" ||
-    node.params._await === true
-      ? "await "
-      : ""
+  // Workflow ops are async by convention — they cross I/O, agent, or LLM
+  // boundaries. Default to awaiting; let a node opt out with _await: false
+  // (e.g. fire-and-forget). Without this, downstream nodes receive a Promise
+  // and silently degrade (e.g. extractFacts(fetchPagePromise) → empty body).
+  const awaitPrefix = node.params._await === false ? "" : "await "
   // For multi-output destructure: const { a, b } = op(...). Single → const out = op(...).
   if (node.outputs.length > 1) {
     const fields = node.outputs.map((o) => safeIdentifier(o, "_")).join(", ")
@@ -292,6 +290,8 @@ function renderNode(
         .join(",\n")
       return `${indent}await Promise.all([\n${branches}\n${indent}])`
     }
+    case "input":
+      return renderInputStatement(node, indent)
     case "call":
     case "llm":
     case "ask":
@@ -299,6 +299,30 @@ function renderNode(
     default:
       return renderCallStatement(node, ctx, indent, args.entryParams, args.rootEntryConsumed)
   }
+}
+
+/**
+ * Render a `kind: "input"` node as a userInput() prompt. The node's params
+ * (inputType / label / default / options / help / timeoutMs) become the
+ * spec object passed to userInput(). We don't pull in incoming-edge values
+ * — an input node is a leaf source of data, fed by the human.
+ */
+function renderInputStatement(node: WorkflowNode, indent: string): string {
+  const outVar = nodeOutputVarName(node)
+  const params = (node.params ?? {}) as Record<string, unknown>
+  // Allow-list the keys we surface to userInput() so unrelated `_args.*`
+  // junk (from earlier codegen passes) doesn't leak into the spec.
+  const SPEC_KEYS = ["inputType", "label", "default", "options", "help", "timeoutMs"]
+  const entries: string[] = []
+  for (const k of SPEC_KEYS) {
+    if (k in params) entries.push(`${k}: ${paramLiteral(params[k])}`)
+  }
+  // Default to text if nothing was specified — keeps the emitted code runnable
+  // even for a freshly-dropped input node the user hasn't configured yet.
+  if (!entries.some((e) => e.startsWith("inputType:"))) {
+    entries.unshift(`inputType: "text"`)
+  }
+  return `${indent}const ${outVar} = await userInput({ ${entries.join(", ")} })`
 }
 
 function renderBranchBody(
