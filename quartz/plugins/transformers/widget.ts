@@ -69,6 +69,12 @@ function renderPlaceholder(
   const workspaceAttr = attrs.workspaceId
     ? ` data-workspace-id="${escapeHtml(attrs.workspaceId)}"`
     : ""
+  // Bake the bridge origin into the rendered HTML at build time. Browser
+  // bootstrap can't read process.env, so this is the only path that lets
+  // prod / staging / dev builds talk to different bridges from the same
+  // widget code.
+  const bridgeOrigin = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
+  const bridgeAttr = ` data-bridge-origin="${escapeHtml(bridgeOrigin)}"`
 
   return (
     `<div class="quartz-widget" ` +
@@ -76,7 +82,7 @@ function renderPlaceholder(
     `data-widget-src="${escapeHtml(src)}" ` +
     `data-widget-path="${escapeHtml(resolvedPath)}" ` +
     `data-widget-mode="${escapeHtml(mode)}"` +
-    `${versionAttr}${workspaceAttr}${styleAttr}` +
+    `${versionAttr}${workspaceAttr}${bridgeAttr}${styleAttr}` +
     `></div>`
   )
 }

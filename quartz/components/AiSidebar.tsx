@@ -3,6 +3,13 @@ import styles from "./styles/aiSidebar.scss"
 import script from "./scripts/bridge-client.inline"
 import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } from "./types"
 
+// Default bridge origin baked in at server-render time. Priority:
+//   1. page frontmatter `bridgeOrigin` (per-page override)
+//   2. WORKFLOW_BRIDGE_URL env (set by scripts/run.sh per worktree)
+//   3. dev fallback (3210) — only hit when running without a worktree
+const SERVER_DEFAULT_BRIDGE_ORIGIN =
+  process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
+
 const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const frontmatter = (fileData.frontmatter ?? {}) as Record<string, string | undefined>
   const workspaceId = frontmatter.workspaceId
@@ -12,7 +19,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const cwd = frontmatter.cwd
   const model = frontmatter.model
   const difficulty = frontmatter.difficulty
-  const bridgeOrigin = frontmatter.bridgeOrigin ?? "http://127.0.0.1:3210"
+  const bridgeOrigin = frontmatter.bridgeOrigin ?? SERVER_DEFAULT_BRIDGE_ORIGIN
   const fileSlug = fileData.slug ?? "unknown"
 
   return (
