@@ -33,8 +33,25 @@ export function getStaticResourcesFromPlugins(ctx: BuildCtx) {
       contentType: "inline",
       script: `
         const socket = new WebSocket('${wsUrl}')
-        // reload(true) ensures resources like images and scripts are fetched again in firefox
-        socket.addEventListener('message', () => document.location.reload(true))
+        // Quartz fork: replace document.location.reload(true) with a soft
+        // SPA-style morph via window.spaNavigate (defined in spa.inline.ts).
+        // Reason: a full reload causes the entire page to flash + lose any
+        // client-side widget state (AI comments, scroll position, etc.) on
+        // every markdown change. Soft morph keeps the page mostly intact
+        // and lets our block-widget-runtime re-attach widgets via the
+        // dispatched 'nav' event. Fall back to a hard reload if for some
+        // reason spaNavigate isn't ready yet.
+        socket.addEventListener('message', () => {
+          if (typeof window.spaNavigate === 'function') {
+            try {
+              window.spaNavigate(new URL(window.location.href), true)
+              return
+            } catch (e) {
+              console.warn('soft reload failed, falling back:', e)
+            }
+          }
+          document.location.reload(true)
+        })
       `,
     })
   }

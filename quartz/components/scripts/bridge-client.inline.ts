@@ -1,3 +1,5 @@
+import { getBlockWidgetRuntime, BlockWidget, WidgetCtx } from "./block-widget-runtime.inline"
+
 type BridgeHealth = {
   ok?: boolean
   port?: number
@@ -664,6 +666,367 @@ async function hydrateBridgeSidebars() {
   }
 }
 
+// AI marginal comments (v0): collect every <p data-paragraph-hash>, ask
+// the bridge for one-shot comments, render a widget next to each one with
+// keep/dismiss/discuss buttons. v0 wires only dismiss; keep/discuss are
+// disabled with a tooltip so the UI is visibly incomplete on purpose.
+type AiCommentResponse = {
+  ok?: boolean
+  error?: string
+  comments?: Array<{ hash: string; comment: string }>
+}
+
+function collectPageParagraphs(): Array<{ hash: string; text: string }> {
+  const out: Array<{ hash: string; text: string }> = []
+  const seen = new Set<string>()
+  for (const p of Array.from(document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"))) {
+    const hash = p.dataset.paragraphHash || ""
+    const text = (p.textContent || "").replace(/\s+/g, " ").trim()
+    if (!hash || !text || seen.has(hash)) continue
+    seen.add(hash)
+    out.push({ hash, text })
+  }
+  return out
+}
+
+
+// AI comment widget — registered with the block-widget runtime so that
+// state (original comment + discussion thread + saved flag) outlives
+// Quartz's hot-rebuilds. See block-widget-runtime.inline.ts for the
+// Identity/State/Mount separation.
+
+type CommentThreadTurn = { role: "ai" | "user"; text: string }
+type AiCommentState = {
+  comment: string
+  thread: CommentThreadTurn[]
+  /** True when the entire widget has been retired (e.g. user dismissed
+   * the original AI peer). Once true, mount skips entirely. */
+  saved: boolean
+  /** Which peer indexes the user has explicitly dismissed from view.
+   * -1 = original AI comment; 0+ = thread[i]. */
+  dismissedIndexes: number[]
+}
+
+// Reddit-style action icons. Inline SVGs to keep this asset-free.
+const ICON_UPVOTE = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 2.4 14 9.6h-3.2v4H5.2v-4H2L8 2.4z"/></svg>`
+const ICON_DOWNVOTE = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 13.6 2 6.4h3.2v-4h5.6v4H14L8 13.6z"/></svg>`
+const ICON_REPLY = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 3h10a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H6.7L3.5 14V11.2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/></svg>`
+const ICON_CLOSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="m4.4 3.4 3.6 3.6 3.6-3.6 1 1L9 8l3.6 3.6-1 1L8 9l-3.6 3.6-1-1L7 8 3.4 4.4z"/></svg>`
+
+// persistComment (markdown write-back) was removed in v3: widget state
+// is now the canonical record (localStorage), not a stepping stone to
+// markdown. Bridge endpoint /api/ai-comments/keep remains available
+// for future use but is no longer called from the client.
+
+const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
+  type: "ai-comment",
+  rootSelector: "article p[data-paragraph-hash]",
+  match: (node) => {
+    if (!(node instanceof HTMLParagraphElement)) return null
+    return node.dataset.paragraphHash || null
+  },
+  defaultState: () => ({ comment: "", thread: [], saved: false, dismissedIndexes: [] }),
+  mount: (node: HTMLElement, state: AiCommentState, ctx: WidgetCtx<AiCommentState>) => {
+    // If this comment has been persisted to markdown, the source rebuild
+    // brings the blockquote in; nothing to paint client-side.
+    if (state.saved || !state.comment) return
+
+    // Defensive: don't double-attach if a previous mount didn't fully clean up.
+    if (node.dataset.aiCommentAttached === "1") return
+    node.dataset.aiCommentAttached = "1"
+
+    // Peer-card layout: the original AI comment and every thread turn
+    // (user + ai) render as siblings in a vertical list, NOT a nested
+    // thread. Each AI peer gets its own ▲ ▼ 💬; each user peer gets only
+    // ✗ (dismiss). Reply composer attaches to the bottom of the list and
+    // is toggled on by clicking 💬 on any AI peer.
+    const widget = document.createElement("aside")
+    widget.className = "ai-comment-widget"
+    widget.setAttribute("data-paragraph-hash", ctx.blockId)
+    widget.innerHTML = `
+      <div class="ai-comment-widget__peers"></div>
+      <form class="ai-comment-widget__composer" hidden>
+        <textarea class="ai-comment-widget__input" rows="2" placeholder="Reply… (Enter to send, Shift+Enter for newline)"></textarea>
+        <div class="ai-comment-widget__composer-actions">
+          <button type="submit" class="ai-comment-widget__send">Send</button>
+          <button type="button" class="ai-comment-widget__collapse" data-ai-comment-action="cancel-reply">Cancel</button>
+        </div>
+      </form>
+      <div class="ai-comment-widget__status" aria-live="polite" hidden></div>
+    `
+    const peersEl = widget.querySelector<HTMLElement>(".ai-comment-widget__peers")!
+    const statusEl = widget.querySelector<HTMLElement>(".ai-comment-widget__status")!
+    const composerEl = widget.querySelector<HTMLFormElement>(".ai-comment-widget__composer")!
+    const inputEl = widget.querySelector<HTMLTextAreaElement>(".ai-comment-widget__input")!
+    const sendBtn = widget.querySelector<HTMLButtonElement>(".ai-comment-widget__send")!
+
+    const setStatus = (msg: string, kind: "info" | "error" | "ok" = "info") => {
+      statusEl.hidden = false
+      statusEl.textContent = msg
+      statusEl.dataset.kind = kind
+    }
+    const clearStatus = () => { statusEl.hidden = true; statusEl.textContent = "" }
+
+    // Working copies kept in closure to avoid setState-induced remounts
+    // while the user is typing. They get written through to the runtime
+    // store via direct .set() so sessionStorage stays current.
+    const thread: CommentThreadTurn[] = state.thread.slice()
+    const dismissedIndexes = new Set<number>(state.dismissedIndexes || [])
+    const persistInPlace = () => {
+      state.thread = thread.slice()
+      state.dismissedIndexes = Array.from(dismissedIndexes)
+      getBlockWidgetRuntime().set("ai-comment", ctx.blockId, state)
+    }
+
+    // Each rendered peer carries its turn index (-1 for the original AI
+    // comment, 0+ for thread positions).
+    function peerText(peerIndex: number): string {
+      if (peerIndex === -1) return state.comment
+      const turn = thread[peerIndex]
+      return turn ? turn.text : ""
+    }
+    function peerRole(peerIndex: number): "ai" | "user" {
+      if (peerIndex === -1) return "ai"
+      return thread[peerIndex]?.role ?? "ai"
+    }
+    function renderOnePeer(peerIndex: number): HTMLElement | null {
+      if (dismissedIndexes.has(peerIndex)) return null
+      const role = peerRole(peerIndex)
+      const text = peerText(peerIndex)
+      if (!text) return null
+      const card = document.createElement("div")
+      card.className = `ai-comment-peer ai-comment-peer--${role}`
+      card.setAttribute("data-peer-index", String(peerIndex))
+
+      const head = document.createElement("div")
+      head.className = "ai-comment-peer__head"
+      const label = document.createElement("span")
+      label.className = "ai-comment-peer__label"
+      label.textContent = role === "ai" ? "Jarvis" : "You"
+      head.appendChild(label)
+
+      const actions = document.createElement("div")
+      actions.className = "ai-comment-peer__actions"
+      // v3 simplification: widget state IS the canonical record (no
+      // markdown write-back). Only two actions: ✗ dismiss + 💬 reply.
+      // "Not dismissed" == "kept" — persistence is via localStorage.
+      if (role === "ai") {
+        actions.innerHTML = `
+          <button type="button" data-ai-comment-action="dismiss" class="ai-comment-peer__icon-button" aria-label="Dismiss" title="Dismiss">${ICON_CLOSE}</button>
+          <button type="button" data-ai-comment-action="reply" class="ai-comment-peer__icon-button" aria-label="Reply" title="Reply">${ICON_REPLY}</button>
+        `
+      } else {
+        actions.innerHTML = `
+          <button type="button" data-ai-comment-action="dismiss" class="ai-comment-peer__icon-button" aria-label="Dismiss this reply" title="Dismiss this reply">${ICON_CLOSE}</button>
+        `
+      }
+      head.appendChild(actions)
+      card.appendChild(head)
+
+      const body = document.createElement("div")
+      body.className = "ai-comment-peer__body"
+      body.textContent = text
+      card.appendChild(body)
+      return card
+    }
+
+    function renderAllPeers() {
+      peersEl.innerHTML = ""
+      const card = renderOnePeer(-1)
+      if (card) peersEl.appendChild(card)
+      for (let i = 0; i < thread.length; i++) {
+        const c = renderOnePeer(i)
+        if (c) peersEl.appendChild(c)
+      }
+    }
+    renderAllPeers()
+
+    const sidebar = document.querySelector<HTMLElement>(".ai-sidebar")
+
+    const openComposer = () => {
+      composerEl.hidden = false
+      window.setTimeout(() => inputEl.focus(), 0)
+    }
+    const closeComposer = () => {
+      composerEl.hidden = true
+      inputEl.value = ""
+    }
+
+    const sendReply = async () => {
+      if (!sidebar) { setStatus("no sidebar", "error"); return }
+      const userText = inputEl.value.trim()
+      if (!userText) return
+      const bridgeOrigin = findBridgeOrigin(sidebar)
+      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      const paragraphText = (node.textContent || "").replace(/\s+/g, " ").trim()
+      thread.push({ role: "user", text: userText })
+      inputEl.value = ""
+      renderAllPeers()
+      persistInPlace()
+      // Close composer immediately on send — the user's reply is already
+      // visible as a peer card and the AI's response will appear inline
+      // when it arrives. Status line shows the "thinking" indicator so
+      // the user knows something's happening.
+      closeComposer()
+      setStatus("Jarvis is thinking…", "info")
+      try {
+        const res = await fetch(`${bridgeOrigin}/api/ai-comments/discuss`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+          body: JSON.stringify({ paragraphText, originalComment: state.comment, thread }),
+        })
+        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reply?: string }
+        if (!res.ok || !payload.ok || !payload.reply) {
+          throw new Error(payload.error || `bridge returned ${res.status}`)
+        }
+        thread.push({ role: "ai", text: payload.reply })
+        renderAllPeers()
+        persistInPlace()
+        clearStatus()
+      } catch (error) {
+        thread.pop()
+        renderAllPeers()
+        persistInPlace()
+        const message = error instanceof Error ? error.message : "discuss failed"
+        setStatus(`discuss failed: ${message}`, "error")
+      } finally {
+        sendBtn.disabled = false
+        sendBtn.textContent = "Send"
+        // composer already closed when send was clicked
+      }
+    }
+
+    composerEl.addEventListener("submit", (event) => {
+      event.preventDefault()
+      void sendReply()
+    })
+    inputEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) return
+      if (event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return
+      event.preventDefault()
+      void sendReply()
+    })
+
+    widget.addEventListener("click", async (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-ai-comment-action]")
+      if (!target) return
+      const action = target.dataset.aiCommentAction
+
+      if (action === "cancel-reply") {
+        closeComposer()
+        return
+      }
+
+      // Resolve which peer this action belongs to.
+      const peerEl = target.closest<HTMLElement>(".ai-comment-peer")
+      const peerIndexAttr = peerEl?.dataset.peerIndex
+      if (peerIndexAttr === undefined) return
+      const peerIndex = Number(peerIndexAttr)
+      if (!Number.isFinite(peerIndex)) return
+
+      if (action === "dismiss") {
+        // Original AI dismissed → whole widget retires.
+        if (peerIndex === -1) {
+          ctx.destroy()
+          return
+        }
+        dismissedIndexes.add(peerIndex)
+        renderAllPeers()
+        persistInPlace()
+        return
+      }
+
+      if (action === "reply") {
+        openComposer()
+        return
+      }
+    })
+    node.insertAdjacentElement("afterend", widget)
+
+    // Cleanup runs before re-mount (e.g., next attachAll after state change).
+    return () => {
+      widget.remove()
+      delete node.dataset.aiCommentAttached
+    }
+  },
+}
+
+// Register the AI comment widget once at module load.
+getBlockWidgetRuntime().register(AI_COMMENT_WIDGET)
+
+async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
+  const bridgeOrigin = findBridgeOrigin(sidebar)
+  if (!bridgeOrigin) {
+    setAiStatus(sidebar, "Jarvis Read: no bridge origin configured.")
+    return
+  }
+  const slug = sidebar.dataset.fileSlug || ""
+  const allParagraphs = collectPageParagraphs()
+  if (allParagraphs.length === 0) {
+    setAiStatus(sidebar, "Jarvis Read: no paragraphs with stable hashes on this page.")
+    return
+  }
+  // Skip paragraphs that already have a Jarvis comment (the user hasn't
+  // dismissed). Re-running Jarvis Read is additive — it generates only
+  // for paragraphs without an existing comment, leaving prior threads
+  // intact. To re-roll a paragraph: dismiss its widget first, then run
+  // Jarvis Read again.
+  const runtime = getBlockWidgetRuntime()
+  const paragraphs = allParagraphs.filter((p) => {
+    const existing = runtime.get<AiCommentState>("ai-comment", p.hash)
+    if (!existing) return true
+    if (existing.saved) return true  // user retired it; OK to re-comment
+    return false
+  })
+  const skipped = allParagraphs.length - paragraphs.length
+  if (paragraphs.length === 0) {
+    setAiStatus(sidebar, `Jarvis Read: every paragraph already has a comment (dismiss first to re-roll).`)
+    return
+  }
+  const originalLabel = button.textContent
+  button.disabled = true
+  button.textContent = "Reading…"
+  setAiStatus(sidebar, `Jarvis Read: sending ${paragraphs.length} paragraph${paragraphs.length === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already commented, skipped)` : ""}...`)
+  try {
+    const res = await fetch(`${bridgeOrigin}/api/ai-comments/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+      body: JSON.stringify({ slug, paragraphs }),
+    })
+    const payload = (await res.json().catch(() => ({}))) as AiCommentResponse
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `bridge returned ${res.status}`)
+    }
+    const comments = Array.isArray(payload.comments) ? payload.comments : []
+    if (comments.length === 0) {
+      setAiStatus(sidebar, "Jarvis Read: nothing worth commenting.")
+      return
+    }
+    for (const c of comments) {
+      runtime.set<AiCommentState>("ai-comment", c.hash, {
+        comment: c.comment,
+        thread: [],
+        saved: false,
+        dismissedIndexes: [],
+      })
+    }
+    runtime.attachAll()
+    let mounted = 0
+    for (const c of comments) {
+      if (document.querySelector(`article p[data-paragraph-hash="${CSS.escape(c.hash)}"]`)) {
+        mounted++
+      }
+    }
+    setAiStatus(sidebar, `Jarvis Read: ${mounted} new comment${mounted === 1 ? "" : "s"} mounted${skipped > 0 ? ` (${skipped} already-commented paragraphs preserved)` : ""}.`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Jarvis Read failed"
+    setAiStatus(sidebar, `Jarvis Read failed: ${message}`)
+  } finally {
+    button.disabled = false
+    if (originalLabel) button.textContent = originalLabel
+  }
+}
+
 function bindAiSidebarInteractions() {
   ensureGlobalAiHost()
   for (const sidebar of Array.from(document.querySelectorAll<HTMLElement>(".ai-sidebar"))) {
@@ -759,6 +1122,10 @@ function bindAiSidebarInteractions() {
             })
           return
         }
+        if (action === "ai-read") {
+          void runAiRead(sidebar, button)
+          return
+        }
         setAiStatus(
           sidebar,
           `${button.textContent?.trim() || action} is queued behind M6 write coordination.`,
@@ -774,6 +1141,7 @@ document.addEventListener("nav", () => {
   ensureGlobalAiHost()
   bindAiSidebarInteractions()
   hydrateBridgeSidebars()
+  getBlockWidgetRuntime().attachAll()
 })
 
 const startAiSidebar = () => {

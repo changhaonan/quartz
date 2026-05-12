@@ -45,13 +45,13 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
     >
       <div class="ai-sidebar__header">
         <div>
-          <p class="ai-sidebar__eyebrow">AI Workspace</p>
+          <p class="ai-sidebar__eyebrow">Jarvis Workspace</p>
           <strong>Document operator</strong>
         </div>
         <div class="ai-sidebar__header-actions">
           <label class="ai-sidebar__client-picker">
             <span>Client</span>
-            <select data-ai-client-select aria-label="AI client">
+            <select data-ai-client-select aria-label="Jarvis client">
               <option value="codex" selected={agent === "codex"}>
                 Codex
               </option>
@@ -135,7 +135,10 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
           </button>
         </div>
       </form>
-      <div class="ai-sidebar__actions" aria-label="AI sidebar actions">
+      <div class="ai-sidebar__actions" aria-label="Jarvis sidebar actions">
+        <button type="button" data-ai-action="ai-read">
+          Jarvis Read
+        </button>
         <button type="button" data-ai-action="create-file">
           Create file
         </button>
