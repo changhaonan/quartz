@@ -442,7 +442,7 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   const workspaceId = resolveWorkspaceId(sidebar)
   const pageWorkspaceId = sidebar.dataset.workspaceId || "not declared"
   const fileSlug = sidebar.dataset.fileSlug || "unknown"
-  const stateDir = sidebar.dataset.stateDir || "not declared"
+  const stateDir = sidebar.dataset.stateDir || ""
   const roleId = sidebar.dataset.roleId || "generalist"
   const agent = sidebar.dataset.agent || "codex"
   const cwd = sidebar.dataset.cwd || ""
@@ -472,10 +472,15 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   lines.push(
     "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
   )
-  lines.push("Useful read path:")
-  lines.push(
-    `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${fileSlug}&stateDir=${stateDir}'`,
-  )
+  if (fileSlug && stateDir) {
+    lines.push("Useful read path:")
+    lines.push(
+      `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${encodeURIComponent(fileSlug)}&stateDir=${encodeURIComponent(stateDir)}'`,
+    )
+  } else {
+    lines.push("Useful read path:")
+    lines.push("Runtime manifest not declared for this page.")
+  }
   lines.push(
     "If the user asks for a mutation and no file-runtime write API exists yet, explain the intended scoped edit before changing files.",
   )
