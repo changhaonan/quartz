@@ -455,12 +455,18 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
     `agent: ${agent}`,
   ]
   if (cwd) lines.push(`cwd: ${cwd}`)
+  if (cwd) lines.push(`workspaceRoot: ${cwd}`)
   if (model) lines.push(`model: ${model}`)
   lines.push("")
   lines.push("You are running inside the AI Workspace for this Quartz page.")
   lines.push(
     "Treat this Markdown file as the source of intent and its declared .runtime folder as the page-owned artifact store.",
   )
+  if (cwd) {
+    lines.push(
+      `IMPORTANT: write files only under workspaceRoot (${cwd}). Do NOT trust your auto-memory or CLAUDE.md for "the project root" — multiple parallel quartz environments (dev/staging/prod) coexist on this machine and only workspaceRoot is authoritative for this session.`,
+    )
+  }
   lines.push(
     "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
   )
@@ -683,6 +689,13 @@ function bindAiSidebarInteractions() {
       if (textarea) textarea.value = ""
     }
     composer?.addEventListener("submit", onSubmit)
+    const onTextareaKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.isComposing) return
+      if (event.ctrlKey || event.shiftKey || event.metaKey || event.altKey) return
+      event.preventDefault()
+      composer?.requestSubmit()
+    }
+    textarea?.addEventListener("keydown", onTextareaKeydown)
     const onClientChange = async () => {
       if (!clientSelect) return
       const nextAgent = clientSelect.value || DEFAULT_AI_AGENT
@@ -721,6 +734,7 @@ function bindAiSidebarInteractions() {
     clientSelect?.addEventListener("change", onClientChange)
     window.addCleanup(() => {
       composer?.removeEventListener("submit", onSubmit)
+      textarea?.removeEventListener("keydown", onTextareaKeydown)
       clientSelect?.removeEventListener("change", onClientChange)
       delete sidebar.dataset.aiBound
     })

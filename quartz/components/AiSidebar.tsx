@@ -8,6 +8,12 @@ import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } fro
 //   2. WORKFLOW_BRIDGE_URL env (set by scripts/run.sh per worktree)
 //   3. dev fallback (3210) — only hit when running without a worktree
 const SERVER_DEFAULT_BRIDGE_ORIGIN = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
+// Default agent cwd baked in at SSR. Priority:
+//   1. page frontmatter `cwd`
+//   2. QUARTZ_CONTENT_ROOT env (per-environment override)
+//   3. process.cwd() — the quartz instance root, distinct per env (dev/staging/prod)
+// This is what stops a write from prod's page landing in dev's content/.
+const SERVER_DEFAULT_CWD = process.env.QUARTZ_CONTENT_ROOT ?? process.cwd()
 const DEFAULT_AI_AGENT = "codex"
 const DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
 const DEFAULT_AI_DIFFICULTY = "medium"
@@ -18,7 +24,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const stateDir = frontmatter.stateDir
   const role = frontmatter.role ?? frontmatter.roleId
   const agent = frontmatter.agent ?? DEFAULT_AI_AGENT
-  const cwd = frontmatter.cwd
+  const cwd = frontmatter.cwd ?? SERVER_DEFAULT_CWD
   const model = frontmatter.model ?? (agent === DEFAULT_AI_AGENT ? DEFAULT_CODEX_MODEL : "")
   const difficulty = frontmatter.difficulty ?? DEFAULT_AI_DIFFICULTY
   const bridgeOrigin = frontmatter.bridgeOrigin ?? SERVER_DEFAULT_BRIDGE_ORIGIN
@@ -32,7 +38,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
       data-state-dir={stateDir ?? ""}
       data-role-id={role ?? ""}
       data-agent={agent}
-      data-cwd={cwd ?? ""}
+      data-cwd={cwd}
       data-model={model}
       data-difficulty={difficulty}
       data-bridge-origin={bridgeOrigin}
