@@ -127,6 +127,7 @@ const aiContextAttrs = [
 
 type AiContext = Record<string, string>
 type AiWindow = Window & { __quartzAiPendingContext?: AiContext }
+const GLOBAL_AI_WORKSPACE_ID = "quartz-site"
 
 function readAiContext(from: HTMLElement | null): AiContext {
   const context: AiContext = {}
@@ -154,7 +155,7 @@ function renderSidebarContextFacts(sidebar: HTMLElement) {
   const workspace = sidebar.querySelector<HTMLElement>('[data-ai-fact="workspace"]')
   const role = sidebar.querySelector<HTMLElement>('[data-ai-fact="role"]')
   const state = sidebar.querySelector<HTMLElement>('[data-ai-fact="state"]')
-  if (workspace) workspace.textContent = sidebar.dataset.workspaceId || "page-scoped"
+  if (workspace) workspace.textContent = resolveWorkspaceId(sidebar)
   if (role) role.textContent = sidebar.dataset.roleId || "none"
   if (state) state.textContent = sidebar.dataset.stateDir || "not declared"
 }
@@ -215,16 +216,12 @@ function ensureGlobalAiHost(): HTMLElement | null {
   return hostSidebar
 }
 
-// Persisted session id per (bridge, workspace) so a rebuild + refresh
-// reconnects to the existing PTY instead of orphaning it and creating a
-// new one. Sidebar.dataset.sessionId alone is DOM memory — it vanishes
-// on any hard reload, which the dev server triggers on every rebuild.
-//
-// Workspace id resolution MUST match createBridgeSession exactly,
-// otherwise the resume key differs from the persist key and we never
-// hit the cache. Centralised so the two paths can't drift.
+// Persisted session id per site-level AI workspace so SPA navigation,
+// rebuilds, and refreshes reconnect to the same document-operator PTY.
+// Page/file runtime ids are injected as context, not used as session
+// identity, otherwise ordinary page navigation creates page-scoped PTYs.
 function resolveWorkspaceId(sidebar: HTMLElement): string {
-  return sidebar.dataset.workspaceId || sidebar.dataset.fileSlug || "quartz-file-runtime"
+  return sidebar.dataset.aiWorkspaceId || GLOBAL_AI_WORKSPACE_ID
 }
 
 function currentSessionBinding(
@@ -233,6 +230,17 @@ function currentSessionBinding(
 ): string {
   return JSON.stringify([
     bridgeOrigin,
+    resolveWorkspaceId(sidebar),
+    sidebar.dataset.roleId || "",
+    sidebar.dataset.agent || "codex",
+    sidebar.dataset.cwd || "",
+    sidebar.dataset.model || "",
+    sidebar.dataset.difficulty || "medium",
+  ])
+}
+
+function currentPageContextBinding(sidebar: HTMLElement): string {
+  return JSON.stringify([
     resolveWorkspaceId(sidebar),
     sidebar.dataset.fileSlug || "",
     sidebar.dataset.stateDir || "",
@@ -260,7 +268,10 @@ function clearMismatchedSessionBinding(sidebar: HTMLElement, previousBinding = "
   const expectedBinding = currentSessionBinding(sidebar)
   const actualBinding = sidebar.dataset.sessionBinding || previousBinding
   if (actualBinding && actualBinding === expectedBinding) return
-  clearSidebarSession(sidebar, "PTY session changes with this page. Start or resume the page PTY.")
+  clearSidebarSession(
+    sidebar,
+    "PTY session changes with this workspace. Start or resume the workspace PTY.",
+  )
 }
 
 function activeSessionMatchesContext(sidebar: HTMLElement, bridgeOrigin: string): boolean {
@@ -375,8 +386,6 @@ async function createBridgeSession(
   const model = sidebar.dataset.model || ""
   const difficulty = sidebar.dataset.difficulty || "medium"
   const workspaceId = resolveWorkspaceId(sidebar)
-  const fileSlug = sidebar.dataset.fileSlug || ""
-  const stateDir = sidebar.dataset.stateDir || ""
   const body: Record<string, string | boolean> = {
     agent,
     difficulty,
@@ -385,11 +394,9 @@ async function createBridgeSession(
   if (cwd) body.cwd = cwd
   if (model) body.model = model
   if (workspaceId) body.workspaceId = workspaceId
-  if (fileSlug) body.fileSlug = fileSlug
-  if (stateDir) body.stateDir = stateDir
-  if (forceNew && fileSlug && stateDir) body.forceNew = true
+  if (forceNew) body.forceNew = true
 
-  const endpoint = fileSlug && stateDir ? "/api/file-runtime/session" : "/api/sessions"
+  const endpoint = "/api/sessions"
   const res = await fetch(`${bridgeOrigin}${endpoint}`, {
     method: "POST",
     headers: {
@@ -410,7 +417,8 @@ async function createBridgeSession(
 }
 
 function buildWorkspaceContext(sidebar: HTMLElement): string {
-  const workspaceId = sidebar.dataset.workspaceId || "page-scoped"
+  const workspaceId = resolveWorkspaceId(sidebar)
+  const pageWorkspaceId = sidebar.dataset.workspaceId || "not declared"
   const fileSlug = sidebar.dataset.fileSlug || "unknown"
   const stateDir = sidebar.dataset.stateDir || "not declared"
   const roleId = sidebar.dataset.roleId || "generalist"
@@ -420,6 +428,7 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   const lines = [
     "[QUARTZ WORKSPACE CONTEXT]",
     `workspaceId: ${workspaceId}`,
+    `pageWorkspaceId: ${pageWorkspaceId}`,
     `fileSlug: ${fileSlug}`,
     `stateDir: ${stateDir}`,
     `roleId: ${roleId}`,
@@ -474,8 +483,9 @@ async function injectWorkspaceContext(
   sidebar: HTMLElement,
   sessionId: string,
 ) {
-  if (sidebar.dataset.workspaceContextSent === sessionId) return
-  sidebar.dataset.workspaceContextSent = sessionId
+  const contextBinding = `${sessionId}:${currentPageContextBinding(sidebar)}`
+  if (sidebar.dataset.workspaceContextSent === contextBinding) return
+  sidebar.dataset.workspaceContextSent = contextBinding
   try {
     await waitForSessionReady(bridgeOrigin, sessionId)
     await sendSessionInput(
@@ -498,16 +508,19 @@ async function ensureBridgeSession(
   if (!bridgeOrigin) throw new Error("No bridge origin configured for this page.")
   let sessionId = sidebar.dataset.sessionId || ""
   if (sessionId && !activeSessionMatchesContext(sidebar, bridgeOrigin)) {
-    clearSidebarSession(sidebar, "PTY session changes with this page. Starting the page PTY...")
+    clearSidebarSession(
+      sidebar,
+      "PTY session changes with this workspace. Starting the workspace PTY...",
+    )
     sessionId = ""
   }
   if (!sessionId) {
     setTerminalStatus(sidebar, "Starting PTY session...")
     const result = await createBridgeSession(bridgeOrigin, sidebar)
     sessionId = result.sessionId
-    if (!result.resumed) void injectWorkspaceContext(bridgeOrigin, sidebar, sessionId)
   }
   mountTerminalFrame(sidebar, bridgeOrigin, sessionId)
+  void injectWorkspaceContext(bridgeOrigin, sidebar, sessionId)
   return { bridgeOrigin, sessionId }
 }
 
@@ -606,6 +619,7 @@ async function hydrateBridgeSidebars() {
           if (alive) {
             rememberSessionBinding(sidebar, bridgeOrigin, remembered)
             mountTerminalFrame(sidebar, bridgeOrigin, remembered)
+            void injectWorkspaceContext(bridgeOrigin, sidebar, remembered)
             setAiStatus(sidebar, `Resumed PTY ${remembered} for ${workspaceId}.`)
           } else {
             clearStoredSessionId(bridgeOrigin, workspaceId)

@@ -7,8 +7,7 @@ import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } fro
 //   1. page frontmatter `bridgeOrigin` (per-page override)
 //   2. WORKFLOW_BRIDGE_URL env (set by scripts/run.sh per worktree)
 //   3. dev fallback (3210) — only hit when running without a worktree
-const SERVER_DEFAULT_BRIDGE_ORIGIN =
-  process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
+const SERVER_DEFAULT_BRIDGE_ORIGIN = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
 
 const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const frontmatter = (fileData.frontmatter ?? {}) as Record<string, string | undefined>
@@ -38,20 +37,36 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
       <div class="ai-sidebar__header">
         <div>
           <p class="ai-sidebar__eyebrow">AI Workspace</p>
-          <strong>File runtime</strong>
+          <strong>Document operator</strong>
         </div>
         <div class="ai-sidebar__header-actions">
           <label class="ai-sidebar__client-picker">
             <span>Client</span>
             <select data-ai-client-select aria-label="AI client">
-              <option value="codex" selected={agent === "codex"}>Codex</option>
-              <option value="claude" selected={agent === "claude"}>Claude</option>
-              <option value="kimi" selected={agent === "kimi"}>Kimi</option>
-              <option value="deepseek" selected={agent === "deepseek"}>DeepSeek</option>
-              <option value="coze" disabled>Coze</option>
+              <option value="codex" selected={agent === "codex"}>
+                Codex
+              </option>
+              <option value="claude" selected={agent === "claude"}>
+                Claude
+              </option>
+              <option value="kimi" selected={agent === "kimi"}>
+                Kimi
+              </option>
+              <option value="deepseek" selected={agent === "deepseek"}>
+                DeepSeek
+              </option>
+              <option value="coze" disabled>
+                Coze
+              </option>
             </select>
           </label>
-          <button type="button" class="ai-sidebar__icon-button" data-ai-action="refresh" title="Refresh bridge state" aria-label="Refresh bridge state">
+          <button
+            type="button"
+            class="ai-sidebar__icon-button"
+            data-ai-action="refresh"
+            title="Refresh bridge state"
+            aria-label="Refresh bridge state"
+          >
             ↻
           </button>
         </div>
@@ -59,7 +74,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
       <dl class="ai-sidebar__facts">
         <div>
           <dt>Workspace</dt>
-          <dd data-ai-fact="workspace">{workspaceId ?? "page-scoped"}</dd>
+          <dd data-ai-fact="workspace">{workspaceId ?? "quartz-site"}</dd>
         </div>
         <div>
           <dt>Role</dt>
@@ -77,7 +92,9 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
         </div>
         <div class="ai-sidebar__bridge-meta">Looking for embedded bridge frames.</div>
         <div class="ai-sidebar__runtime-meta">Runtime manifest pending.</div>
-        <a class="ai-sidebar__bridge-link" href="#" target="_blank" rel="noreferrer">Open bridge</a>
+        <a class="ai-sidebar__bridge-link" href="#" target="_blank" rel="noreferrer">
+          Open bridge
+        </a>
       </div>
       <section class="ai-sidebar__terminal-shell" aria-label="PTY session">
         <div class="ai-sidebar__terminal-header">
@@ -91,7 +108,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
         </div>
       </section>
       <div class="ai-sidebar__status" data-ai-status aria-live="polite">
-        Ready. Messages route into the page PTY session.
+        Ready. Messages route into the workspace PTY session.
       </div>
       <form class="ai-sidebar__composer" data-ai-composer>
         <textarea
@@ -101,7 +118,9 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
           placeholder="Ask about this workspace..."
         ></textarea>
         <div class="ai-sidebar__composer-actions">
-          <button type="submit" class="ai-sidebar__primary-button">Send</button>
+          <button type="submit" class="ai-sidebar__primary-button">
+            Send
+          </button>
           <button type="button" class="ai-sidebar__secondary-button" data-ai-action="summarize">
             Summarize
           </button>

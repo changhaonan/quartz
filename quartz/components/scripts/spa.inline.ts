@@ -67,16 +67,14 @@ function readAiContext(from: Element | null): AiContext {
   return context
 }
 
-function aiContextSignature(context: AiContext): string {
+function aiSessionSignature(context: AiContext): string {
   return JSON.stringify([
     context["data-bridge-origin"] || "",
-    context["data-workspace-id"] || "",
-    context["data-file-slug"] || "",
-    context["data-state-dir"] || "",
     context["data-role-id"] || "",
     context["data-agent"] || "codex",
     context["data-cwd"] || "",
     context["data-model"] || "",
+    context["data-difficulty"] || "medium",
   ])
 }
 
@@ -89,14 +87,15 @@ function clearAiSessionForContextChange(sidebar: Element | null) {
   if (terminal) {
     terminal.replaceChildren()
     const placeholder = document.createElement("span")
-    placeholder.textContent = "PTY session changes with this page. Start or resume the page PTY."
+    placeholder.textContent =
+      "PTY session changes with this workspace. Start or resume the workspace PTY."
     terminal.appendChild(placeholder)
   }
 }
 
 function writeAiContext(to: Element | null, context: AiContext) {
   if (!to) return
-  const previousSignature = aiContextSignature(readAiContext(to))
+  const previousSignature = aiSessionSignature(readAiContext(to))
   const keepSelectedAgent = to instanceof HTMLElement && to.dataset.agentLocked === "1"
   for (const attr of aiContextAttrs) {
     if (attr === "data-agent" && keepSelectedAgent) continue
@@ -104,7 +103,7 @@ function writeAiContext(to: Element | null, context: AiContext) {
     if (value === undefined) to.removeAttribute(attr)
     else to.setAttribute(attr, value)
   }
-  const nextSignature = aiContextSignature(readAiContext(to))
+  const nextSignature = aiSessionSignature(readAiContext(to))
   if (previousSignature !== nextSignature) clearAiSessionForContextChange(to)
 }
 
