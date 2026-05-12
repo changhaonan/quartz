@@ -2,13 +2,16 @@ type BridgeHealth = {
   ok?: boolean
   port?: number
   sessionCount?: number
-  agents?: Record<string, {
-    installed?: boolean
-    enabled?: boolean
-    available?: boolean
-    version?: string
-    path?: string
-  }>
+  agents?: Record<
+    string,
+    {
+      installed?: boolean
+      enabled?: boolean
+      available?: boolean
+      version?: string
+      path?: string
+    }
+  >
   version?: {
     label?: string
     packageVersion?: string
@@ -136,6 +139,7 @@ function readAiContext(from: HTMLElement | null): AiContext {
 }
 
 function applyAiContext(to: HTMLElement, context: AiContext) {
+  const previousBinding = currentSessionBinding(to)
   const keepSelectedAgent = to.dataset.agentLocked === "1"
   for (const attr of aiContextAttrs) {
     if (attr === "data-agent" && keepSelectedAgent) continue
@@ -143,6 +147,7 @@ function applyAiContext(to: HTMLElement, context: AiContext) {
     if (value === undefined) to.removeAttribute(attr)
     else to.setAttribute(attr, value)
   }
+  clearMismatchedSessionBinding(to, previousBinding)
 }
 
 function renderSidebarContextFacts(sidebar: HTMLElement) {
@@ -219,11 +224,53 @@ function ensureGlobalAiHost(): HTMLElement | null {
 // otherwise the resume key differs from the persist key and we never
 // hit the cache. Centralised so the two paths can't drift.
 function resolveWorkspaceId(sidebar: HTMLElement): string {
-  return (
-    sidebar.dataset.workspaceId ||
-    sidebar.dataset.fileSlug ||
-    "quartz-file-runtime"
-  )
+  return sidebar.dataset.workspaceId || sidebar.dataset.fileSlug || "quartz-file-runtime"
+}
+
+function currentSessionBinding(
+  sidebar: HTMLElement,
+  bridgeOrigin = findBridgeOrigin(sidebar) || "",
+): string {
+  return JSON.stringify([
+    bridgeOrigin,
+    resolveWorkspaceId(sidebar),
+    sidebar.dataset.fileSlug || "",
+    sidebar.dataset.stateDir || "",
+    sidebar.dataset.roleId || "",
+    sidebar.dataset.agent || "codex",
+    sidebar.dataset.cwd || "",
+    sidebar.dataset.model || "",
+  ])
+}
+
+function rememberSessionBinding(sidebar: HTMLElement, bridgeOrigin: string, sessionId: string) {
+  sidebar.dataset.sessionId = sessionId
+  sidebar.dataset.sessionBinding = currentSessionBinding(sidebar, bridgeOrigin)
+}
+
+function clearSidebarSession(sidebar: HTMLElement, reason: string) {
+  delete sidebar.dataset.sessionId
+  delete sidebar.dataset.sessionBinding
+  delete sidebar.dataset.workspaceContextSent
+  setTerminalStatus(sidebar, reason)
+}
+
+function clearMismatchedSessionBinding(sidebar: HTMLElement, previousBinding = "") {
+  if (!sidebar.dataset.sessionId) return
+  const expectedBinding = currentSessionBinding(sidebar)
+  const actualBinding = sidebar.dataset.sessionBinding || previousBinding
+  if (actualBinding && actualBinding === expectedBinding) return
+  clearSidebarSession(sidebar, "PTY session changes with this page. Start or resume the page PTY.")
+}
+
+function activeSessionMatchesContext(sidebar: HTMLElement, bridgeOrigin: string): boolean {
+  const expectedBinding = currentSessionBinding(sidebar, bridgeOrigin)
+  if (!sidebar.dataset.sessionId) return false
+  if (!sidebar.dataset.sessionBinding) {
+    sidebar.dataset.sessionBinding = expectedBinding
+    return true
+  }
+  return sidebar.dataset.sessionBinding === expectedBinding
 }
 
 function sessionStorageKey(bridgeOrigin: string, workspaceId: string): string {
@@ -356,7 +403,7 @@ async function createBridgeSession(
   if (!res.ok || !payload.ok || !sessionId) {
     throw new Error(payload.error || `session ${res.status}`)
   }
-  sidebar.dataset.sessionId = sessionId
+  rememberSessionBinding(sidebar, bridgeOrigin, sessionId)
   storeSessionId(bridgeOrigin, workspaceId, sessionId)
   setAiStatus(sidebar, `${agent} PTY ready for ${workspaceId}: ${sessionId}`)
   return { sessionId, resumed: Boolean(payload.resumed) }
@@ -382,11 +429,19 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   if (model) lines.push(`model: ${model}`)
   lines.push("")
   lines.push("You are running inside the AI Workspace for this Quartz page.")
-  lines.push("Treat this Markdown file as the source of intent and its declared .runtime folder as the page-owned artifact store.")
-  lines.push("Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.")
+  lines.push(
+    "Treat this Markdown file as the source of intent and its declared .runtime folder as the page-owned artifact store.",
+  )
+  lines.push(
+    "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
+  )
   lines.push("Useful read path:")
-  lines.push(`bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${fileSlug}&stateDir=${stateDir}'`)
-  lines.push("If the user asks for a mutation and no file-runtime write API exists yet, explain the intended scoped edit before changing files.")
+  lines.push(
+    `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${fileSlug}&stateDir=${stateDir}'`,
+  )
+  lines.push(
+    "If the user asks for a mutation and no file-runtime write API exists yet, explain the intended scoped edit before changing files.",
+  )
   lines.push("[/QUARTZ WORKSPACE CONTEXT]")
   return lines.join("\n")
 }
@@ -414,12 +469,21 @@ async function waitForSessionReady(bridgeOrigin: string, sessionId: string) {
   }
 }
 
-async function injectWorkspaceContext(bridgeOrigin: string, sidebar: HTMLElement, sessionId: string) {
+async function injectWorkspaceContext(
+  bridgeOrigin: string,
+  sidebar: HTMLElement,
+  sessionId: string,
+) {
   if (sidebar.dataset.workspaceContextSent === sessionId) return
   sidebar.dataset.workspaceContextSent = sessionId
   try {
     await waitForSessionReady(bridgeOrigin, sessionId)
-    await sendSessionInput(bridgeOrigin, sessionId, buildWorkspaceContext(sidebar), "quartz-workspace-context")
+    await sendSessionInput(
+      bridgeOrigin,
+      sessionId,
+      buildWorkspaceContext(sidebar),
+      "quartz-workspace-context",
+    )
     setAiStatus(sidebar, `Workspace context sent to PTY ${sessionId}.`)
   } catch (error) {
     const message = error instanceof Error ? error.message : "context injection failed"
@@ -427,10 +491,16 @@ async function injectWorkspaceContext(bridgeOrigin: string, sidebar: HTMLElement
   }
 }
 
-async function ensureBridgeSession(sidebar: HTMLElement): Promise<{ bridgeOrigin: string; sessionId: string }> {
+async function ensureBridgeSession(
+  sidebar: HTMLElement,
+): Promise<{ bridgeOrigin: string; sessionId: string }> {
   const bridgeOrigin = findBridgeOrigin(sidebar)
   if (!bridgeOrigin) throw new Error("No bridge origin configured for this page.")
   let sessionId = sidebar.dataset.sessionId || ""
+  if (sessionId && !activeSessionMatchesContext(sidebar, bridgeOrigin)) {
+    clearSidebarSession(sidebar, "PTY session changes with this page. Starting the page PTY...")
+    sessionId = ""
+  }
   if (!sessionId) {
     setTerminalStatus(sidebar, "Starting PTY session...")
     const result = await createBridgeSession(bridgeOrigin, sidebar)
@@ -488,7 +558,13 @@ async function hydrateBridgeSidebars() {
   for (const sidebar of sidebars) {
     const bridgeOrigin = findBridgeOrigin(sidebar)
     if (!bridgeOrigin) {
-      setSidebarStatus(sidebar, "missing", "No bridge origin", "Set bridgeOrigin in frontmatter.", null)
+      setSidebarStatus(
+        sidebar,
+        "missing",
+        "No bridge origin",
+        "Set bridgeOrigin in frontmatter.",
+        null,
+      )
       continue
     }
     setSidebarStatus(sidebar, "probing", "Bridge probing", bridgeOrigin, bridgeOrigin)
@@ -504,9 +580,16 @@ async function hydrateBridgeSidebars() {
       try {
         manifestSummary = summarizeManifest(await fetchFileRuntimeManifest(bridgeOrigin, sidebar))
       } catch (error) {
-        manifestSummary = error instanceof Error ? `Runtime ${error.message}` : "Runtime manifest failed."
+        manifestSummary =
+          error instanceof Error ? `Runtime ${error.message}` : "Runtime manifest failed."
       }
-      setSidebarStatus(sidebar, "connected", `Bridge ${health.port ?? ""}`.trim(), `${sessionText} · ${version}`, bridgeOrigin)
+      setSidebarStatus(
+        sidebar,
+        "connected",
+        `Bridge ${health.port ?? ""}`.trim(),
+        `${sessionText} · ${version}`,
+        bridgeOrigin,
+      )
       setRuntimeMeta(sidebar, manifestSummary)
 
       // Resume an existing PTY session if we remember one and it's
@@ -521,7 +604,7 @@ async function hydrateBridgeSidebars() {
           const state = await fetchSessionState(bridgeOrigin, remembered)
           const alive = state.ok !== false && state.session && state.session.state !== "exited"
           if (alive) {
-            sidebar.dataset.sessionId = remembered
+            rememberSessionBinding(sidebar, bridgeOrigin, remembered)
             mountTerminalFrame(sidebar, bridgeOrigin, remembered)
             setAiStatus(sidebar, `Resumed PTY ${remembered} for ${workspaceId}.`)
           } else {
@@ -605,7 +688,9 @@ function bindAiSidebarInteractions() {
       delete sidebar.dataset.aiBound
     })
 
-    for (const button of Array.from(sidebar.querySelectorAll<HTMLButtonElement>("[data-ai-action]"))) {
+    for (const button of Array.from(
+      sidebar.querySelectorAll<HTMLButtonElement>("[data-ai-action]"),
+    )) {
       const onClick = () => {
         const action = button.dataset.aiAction || "action"
         if (action === "refresh") {
@@ -623,7 +708,10 @@ function bindAiSidebarInteractions() {
             })
           return
         }
-        setAiStatus(sidebar, `${button.textContent?.trim() || action} is queued behind M6 write coordination.`)
+        setAiStatus(
+          sidebar,
+          `${button.textContent?.trim() || action} is queued behind M6 write coordination.`,
+        )
       }
       button.addEventListener("click", onClick)
       window.addCleanup(() => button.removeEventListener("click", onClick))

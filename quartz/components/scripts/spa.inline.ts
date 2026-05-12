@@ -67,8 +67,36 @@ function readAiContext(from: Element | null): AiContext {
   return context
 }
 
+function aiContextSignature(context: AiContext): string {
+  return JSON.stringify([
+    context["data-bridge-origin"] || "",
+    context["data-workspace-id"] || "",
+    context["data-file-slug"] || "",
+    context["data-state-dir"] || "",
+    context["data-role-id"] || "",
+    context["data-agent"] || "codex",
+    context["data-cwd"] || "",
+    context["data-model"] || "",
+  ])
+}
+
+function clearAiSessionForContextChange(sidebar: Element | null) {
+  if (!sidebar) return
+  sidebar.removeAttribute("data-session-id")
+  sidebar.removeAttribute("data-session-binding")
+  sidebar.removeAttribute("data-workspace-context-sent")
+  const terminal = sidebar.querySelector<HTMLElement>("[data-ai-terminal]")
+  if (terminal) {
+    terminal.replaceChildren()
+    const placeholder = document.createElement("span")
+    placeholder.textContent = "PTY session changes with this page. Start or resume the page PTY."
+    terminal.appendChild(placeholder)
+  }
+}
+
 function writeAiContext(to: Element | null, context: AiContext) {
   if (!to) return
+  const previousSignature = aiContextSignature(readAiContext(to))
   const keepSelectedAgent = to instanceof HTMLElement && to.dataset.agentLocked === "1"
   for (const attr of aiContextAttrs) {
     if (attr === "data-agent" && keepSelectedAgent) continue
@@ -76,6 +104,8 @@ function writeAiContext(to: Element | null, context: AiContext) {
     if (value === undefined) to.removeAttribute(attr)
     else to.setAttribute(attr, value)
   }
+  const nextSignature = aiContextSignature(readAiContext(to))
+  if (previousSignature !== nextSignature) clearAiSessionForContextChange(to)
 }
 
 function preserveAiGlobalHost(nextBody: Document["body"]) {
@@ -89,7 +119,8 @@ function preserveAiGlobalHost(nextBody: Document["body"]) {
   if (!currentPanel || currentPanel === incomingPanel) return
 
   const nextContext = readAiContext(incomingPanel.querySelector<HTMLElement>(".ai-sidebar"))
-  ;(window as Window & { __quartzAiPendingContext?: AiContext }).__quartzAiPendingContext = nextContext
+  ;(window as Window & { __quartzAiPendingContext?: AiContext }).__quartzAiPendingContext =
+    nextContext
   currentPanel.dataset.aiGlobalHost = ""
   currentPanel.dataset.persist = ""
   const stableClone = currentPanel.cloneNode(true) as HTMLElement
