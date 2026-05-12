@@ -56,6 +56,13 @@ const aiContextAttrs = [
 ]
 
 type AiContext = Record<string, string>
+const DEFAULT_AI_AGENT = "codex"
+const DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
+const DEFAULT_AI_DIFFICULTY = "medium"
+
+function defaultModelForAgent(agent: string): string {
+  return agent === DEFAULT_AI_AGENT ? DEFAULT_CODEX_MODEL : ""
+}
 
 function readAiContext(from: Element | null): AiContext {
   const context: AiContext = {}
@@ -71,10 +78,10 @@ function aiSessionSignature(context: AiContext): string {
   return JSON.stringify([
     context["data-bridge-origin"] || "",
     context["data-role-id"] || "",
-    context["data-agent"] || "codex",
+    context["data-agent"] || DEFAULT_AI_AGENT,
     context["data-cwd"] || "",
-    context["data-model"] || "",
-    context["data-difficulty"] || "medium",
+    context["data-model"] || defaultModelForAgent(context["data-agent"] || DEFAULT_AI_AGENT),
+    context["data-difficulty"] || DEFAULT_AI_DIFFICULTY,
   ])
 }
 

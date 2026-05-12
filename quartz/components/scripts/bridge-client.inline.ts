@@ -128,6 +128,23 @@ const aiContextAttrs = [
 type AiContext = Record<string, string>
 type AiWindow = Window & { __quartzAiPendingContext?: AiContext }
 const GLOBAL_AI_WORKSPACE_ID = "quartz-site"
+const DEFAULT_AI_AGENT = "codex"
+const DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
+const DEFAULT_AI_DIFFICULTY = "medium"
+
+function defaultModelForAgent(agent: string): string {
+  return agent === DEFAULT_AI_AGENT ? DEFAULT_CODEX_MODEL : ""
+}
+
+function applySidebarDefaults(sidebar: HTMLElement) {
+  const agent = sidebar.dataset.agent || DEFAULT_AI_AGENT
+  sidebar.dataset.agent = agent
+  if (!sidebar.dataset.difficulty) sidebar.dataset.difficulty = DEFAULT_AI_DIFFICULTY
+  if (!sidebar.dataset.model) {
+    const defaultModel = defaultModelForAgent(agent)
+    if (defaultModel) sidebar.dataset.model = defaultModel
+  }
+}
 
 function readAiContext(from: HTMLElement | null): AiContext {
   const context: AiContext = {}
@@ -148,6 +165,7 @@ function applyAiContext(to: HTMLElement, context: AiContext) {
     if (value === undefined) to.removeAttribute(attr)
     else to.setAttribute(attr, value)
   }
+  applySidebarDefaults(to)
   clearMismatchedSessionBinding(to, previousBinding)
 }
 
@@ -163,7 +181,7 @@ function renderSidebarContextFacts(sidebar: HTMLElement) {
 function syncClientSelector(sidebar: HTMLElement) {
   const select = sidebar.querySelector<HTMLSelectElement>("[data-ai-client-select]")
   if (!select) return
-  select.value = sidebar.dataset.agent || "codex"
+  select.value = sidebar.dataset.agent || DEFAULT_AI_AGENT
 }
 
 function applyAgentAvailability(sidebar: HTMLElement, agents: BridgeHealth["agents"]) {
@@ -211,6 +229,7 @@ function ensureGlobalAiHost(): HTMLElement | null {
     delete (window as AiWindow).__quartzAiPendingContext
   }
 
+  applySidebarDefaults(hostSidebar)
   renderSidebarContextFacts(hostSidebar)
   syncClientSelector(hostSidebar)
   return hostSidebar
@@ -232,10 +251,10 @@ function currentSessionBinding(
     bridgeOrigin,
     resolveWorkspaceId(sidebar),
     sidebar.dataset.roleId || "",
-    sidebar.dataset.agent || "codex",
+    sidebar.dataset.agent || DEFAULT_AI_AGENT,
     sidebar.dataset.cwd || "",
-    sidebar.dataset.model || "",
-    sidebar.dataset.difficulty || "medium",
+    sidebar.dataset.model || defaultModelForAgent(sidebar.dataset.agent || DEFAULT_AI_AGENT),
+    sidebar.dataset.difficulty || DEFAULT_AI_DIFFICULTY,
   ])
 }
 
@@ -245,9 +264,9 @@ function currentPageContextBinding(sidebar: HTMLElement): string {
     sidebar.dataset.fileSlug || "",
     sidebar.dataset.stateDir || "",
     sidebar.dataset.roleId || "",
-    sidebar.dataset.agent || "codex",
+    sidebar.dataset.agent || DEFAULT_AI_AGENT,
     sidebar.dataset.cwd || "",
-    sidebar.dataset.model || "",
+    sidebar.dataset.model || defaultModelForAgent(sidebar.dataset.agent || DEFAULT_AI_AGENT),
   ])
 }
 
@@ -380,11 +399,12 @@ async function createBridgeSession(
   sidebar: HTMLElement,
   forceNew = false,
 ): Promise<{ sessionId: string; resumed: boolean }> {
+  applySidebarDefaults(sidebar)
   const roleId = sidebar.dataset.roleId || ""
-  const agent = sidebar.dataset.agent || "codex"
+  const agent = sidebar.dataset.agent || DEFAULT_AI_AGENT
   const cwd = sidebar.dataset.cwd || ""
   const model = sidebar.dataset.model || ""
-  const difficulty = sidebar.dataset.difficulty || "medium"
+  const difficulty = sidebar.dataset.difficulty || DEFAULT_AI_DIFFICULTY
   const workspaceId = resolveWorkspaceId(sidebar)
   const body: Record<string, string | boolean> = {
     agent,
@@ -665,7 +685,7 @@ function bindAiSidebarInteractions() {
     composer?.addEventListener("submit", onSubmit)
     const onClientChange = async () => {
       if (!clientSelect) return
-      const nextAgent = clientSelect.value || "codex"
+      const nextAgent = clientSelect.value || DEFAULT_AI_AGENT
       if (nextAgent === "coze") {
         setAiStatus(sidebar, "Coze is not wired into the bridge runtime yet.")
         syncClientSelector(sidebar)
@@ -673,7 +693,10 @@ function bindAiSidebarInteractions() {
       }
       sidebar.dataset.agent = nextAgent
       sidebar.dataset.agentLocked = "1"
-      sidebar.dataset.model = ""
+      const defaultModel = defaultModelForAgent(nextAgent)
+      if (defaultModel) sidebar.dataset.model = defaultModel
+      else delete sidebar.dataset.model
+      if (!sidebar.dataset.difficulty) sidebar.dataset.difficulty = DEFAULT_AI_DIFFICULTY
       delete sidebar.dataset.sessionId
       delete sidebar.dataset.workspaceContextSent
       clientSelect.disabled = true

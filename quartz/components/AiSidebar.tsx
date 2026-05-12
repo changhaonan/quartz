@@ -8,16 +8,19 @@ import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } fro
 //   2. WORKFLOW_BRIDGE_URL env (set by scripts/run.sh per worktree)
 //   3. dev fallback (3210) — only hit when running without a worktree
 const SERVER_DEFAULT_BRIDGE_ORIGIN = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
+const DEFAULT_AI_AGENT = "codex"
+const DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
+const DEFAULT_AI_DIFFICULTY = "medium"
 
 const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const frontmatter = (fileData.frontmatter ?? {}) as Record<string, string | undefined>
   const workspaceId = frontmatter.workspaceId
   const stateDir = frontmatter.stateDir
   const role = frontmatter.role ?? frontmatter.roleId
-  const agent = frontmatter.agent ?? "codex"
+  const agent = frontmatter.agent ?? DEFAULT_AI_AGENT
   const cwd = frontmatter.cwd
-  const model = frontmatter.model
-  const difficulty = frontmatter.difficulty
+  const model = frontmatter.model ?? (agent === DEFAULT_AI_AGENT ? DEFAULT_CODEX_MODEL : "")
+  const difficulty = frontmatter.difficulty ?? DEFAULT_AI_DIFFICULTY
   const bridgeOrigin = frontmatter.bridgeOrigin ?? SERVER_DEFAULT_BRIDGE_ORIGIN
   const fileSlug = fileData.slug ?? "unknown"
 
@@ -30,8 +33,8 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
       data-role-id={role ?? ""}
       data-agent={agent}
       data-cwd={cwd ?? ""}
-      data-model={model ?? ""}
-      data-difficulty={difficulty ?? ""}
+      data-model={model}
+      data-difficulty={difficulty}
       data-bridge-origin={bridgeOrigin}
     >
       <div class="ai-sidebar__header">

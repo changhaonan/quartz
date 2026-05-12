@@ -22,8 +22,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 const BASE = process.env.BASE || "http://127.0.0.1:8081"
 const BRIDGE = process.env.BRIDGE || "http://127.0.0.1:3001"
 const TOUCH_FILE =
-  process.env.TOUCH_FILE ||
-  "/Users/haonanchang/Projects/quartz_pty_staging/content/demos/index.md"
+  process.env.TOUCH_FILE || "/Users/haonanchang/Projects/quartz_pty_staging/content/demos/index.md"
 
 const browser = await chromium.launch({ headless: true })
 const ctx = await browser.newContext()
@@ -51,22 +50,28 @@ ok("bridge origin baked into HTML")
 // give hydrate a moment
 await sleep(2000)
 
-// Use the workspaceId the staging / page would itself resolve to:
-// no frontmatter workspaceId → falls back to data-file-slug="index".
-// The persist key and resume key must match the production logic for
-// this test to be meaningful.
-const WORKSPACE = "index"
+// Sidebar AI is a site-level document operator. Page ids are injected as
+// context, but the persisted PTY identity stays on the global workspace.
+const WORKSPACE = "quartz-site"
 
 console.log("step 2: create a PTY session via bridge API")
-const sess = await page.evaluate(async ([bridge, ws]) => {
-  const res = await fetch(`${bridge}/api/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
-    body: JSON.stringify({ agent: "codex", workspaceId: ws }),
-  })
-  const body = await res.json()
-  return body.session?.sessionId || body.session?.id
-}, [BRIDGE, WORKSPACE])
+const sess = await page.evaluate(
+  async ([bridge, ws]) => {
+    const res = await fetch(`${bridge}/api/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+      body: JSON.stringify({
+        agent: "codex",
+        model: "gpt-5.4-mini",
+        difficulty: "medium",
+        workspaceId: ws,
+      }),
+    })
+    const body = await res.json()
+    return body.session?.sessionId || body.session?.id
+  },
+  [BRIDGE, WORKSPACE],
+)
 if (!sess) fail("session creation returned no id")
 ok(`session created: ${sess}`)
 
@@ -94,7 +99,9 @@ const dataset = await page.evaluate(() => {
   const el = document.querySelector(".ai-sidebar")
   return { sessionId: el?.dataset.sessionId, workspaceId: el?.dataset.workspaceId }
 })
-console.log(`  after reload: dataset.sessionId=${dataset.sessionId} workspaceId=${dataset.workspaceId}`)
+console.log(
+  `  after reload: dataset.sessionId=${dataset.sessionId} workspaceId=${dataset.workspaceId}`,
+)
 
 if (!dataset.sessionId) {
   fail("dataset.sessionId is empty after reload — resume did NOT happen")
