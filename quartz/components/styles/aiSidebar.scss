@@ -448,6 +448,20 @@
   color: #b34750;
 }
 
+.ai-comment-peer__icon-button[data-ai-comment-action="like"]:hover:not(:disabled) {
+  background: color-mix(in srgb, #ff6e9c 22%, var(--light));
+  color: #c24272;
+}
+
+.ai-comment-peer__icon-button--liked {
+  background: color-mix(in srgb, #ff6e9c 28%, var(--light));
+  color: #c24272;
+}
+
+.ai-comment-peer--liked {
+  border-left-color: #ff6e9c;
+}
+
 .ai-comment-peer__icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -459,11 +473,133 @@
   white-space: pre-wrap;
 }
 
+.ai-comment-peer__timestamp {
+  color: var(--gray);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  margin-top: 0.1rem;
+}
+
 // `[hidden]` keeps the composer/status hidden until needed. The element
 // classes below set display, so we need to re-state [hidden] explicitly.
 .ai-comment-widget__composer[hidden],
-.ai-comment-widget__status[hidden] {
+.ai-comment-widget__status[hidden],
+.ai-comment-widget__distill-panel[hidden],
+.ai-comment-widget__distill-loading[hidden],
+.ai-comment-widget__distill-preview[hidden] {
   display: none;
+}
+
+.ai-comment-widget__status a {
+  color: var(--secondary);
+  text-decoration: underline;
+}
+
+.ai-comment-widget__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.4rem;
+}
+
+.ai-comment-widget__distill-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--lightgray);
+  border-radius: 4px;
+  color: var(--gray);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.78rem;
+  gap: 0.3rem;
+  padding: 0.25rem 0.55rem;
+}
+
+.ai-comment-widget__distill-btn:hover {
+  background: color-mix(in srgb, var(--secondary) 10%, var(--light));
+  color: var(--dark);
+}
+
+.ai-comment-widget__distill-panel {
+  background: color-mix(in srgb, var(--lightgray) 22%, var(--light));
+  border: 1px solid var(--lightgray);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.ai-comment-widget__distill-loading {
+  color: var(--gray);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.ai-comment-widget__distill-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ai-comment-widget__distill-label {
+  align-items: center;
+  color: var(--gray);
+  display: flex;
+  font-size: 0.78rem;
+  gap: 0.4rem;
+}
+
+.ai-comment-widget__distill-path {
+  background: var(--light);
+  border: 1px solid var(--lightgray);
+  border-radius: 3px;
+  color: var(--dark);
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.ai-comment-widget__distill-content {
+  background: var(--light);
+  border: 1px solid var(--lightgray);
+  border-radius: 4px;
+  color: var(--dark);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  padding: 0.4rem 0.55rem;
+  resize: vertical;
+}
+
+.ai-comment-widget__distill-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.ai-comment-widget__distill-actions button {
+  background: var(--light);
+  border: 1px solid var(--lightgray);
+  border-radius: 3px;
+  color: var(--dark);
+  cursor: pointer;
+  font-size: 0.78rem;
+  padding: 0.22rem 0.65rem;
+}
+
+.ai-comment-widget__distill-save {
+  background: color-mix(in srgb, var(--secondary) 22%, var(--light));
+}
+
+.ai-comment-widget__distill-actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--secondary) 30%, var(--light));
+}
+
+.ai-comment-widget__distill-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .ai-comment-widget__composer {

@@ -700,9 +700,17 @@ function collectPageParagraphs(): Array<{ hash: string; text: string }> {
 // Quartz's hot-rebuilds. See block-widget-runtime.inline.ts for the
 // Identity/State/Mount separation.
 
-type CommentThreadTurn = { role: "ai" | "user"; text: string }
+type CommentThreadTurn = {
+  role: "ai" | "user"
+  text: string
+  /** ISO 8601. Optional for backward compatibility with state stored
+   * before timestamps were added. */
+  createdAt?: string
+}
 type AiCommentState = {
   comment: string
+  /** ISO 8601 of when the original Jarvis comment was generated. */
+  commentCreatedAt?: string
   thread: CommentThreadTurn[]
   /** True when the entire widget has been retired (e.g. user dismissed
    * the original AI peer). Once true, mount skips entirely. */
@@ -710,6 +718,9 @@ type AiCommentState = {
   /** Which peer indexes the user has explicitly dismissed from view.
    * -1 = original AI comment; 0+ = thread[i]. */
   dismissedIndexes: number[]
+  /** Which peer indexes the user has liked (♥). Cosmetic only — does
+   * not write to source markdown. */
+  likedIndexes: number[]
 }
 
 // Reddit-style action icons. Inline SVGs to keep this asset-free.
@@ -717,6 +728,8 @@ const ICON_UPVOTE = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden
 const ICON_DOWNVOTE = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 13.6 2 6.4h3.2v-4h5.6v4H14L8 13.6z"/></svg>`
 const ICON_REPLY = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 3h10a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H6.7L3.5 14V11.2H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/></svg>`
 const ICON_CLOSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="m4.4 3.4 3.6 3.6 3.6-3.6 1 1L9 8l3.6 3.6-1 1L8 9l-3.6 3.6-1-1L7 8 3.4 4.4z"/></svg>`
+const ICON_HEART = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 13.5 2.4 8.4a3.4 3.4 0 1 1 4.8-4.8L8 4.4l.8-.8a3.4 3.4 0 0 1 4.8 4.8L8 13.5z"/></svg>`
+const ICON_DISTILL = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm6 1.5V5.5h2L9 3.5zM4.5 8h7v1h-7zm0 2.5h7v1h-7z"/></svg>`
 
 // persistComment (markdown write-back) was removed in v3: widget state
 // is now the canonical record (localStorage), not a stepping stone to
@@ -730,7 +743,7 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     if (!(node instanceof HTMLParagraphElement)) return null
     return node.dataset.paragraphHash || null
   },
-  defaultState: () => ({ comment: "", thread: [], saved: false, dismissedIndexes: [] }),
+  defaultState: () => ({ comment: "", thread: [], saved: false, dismissedIndexes: [], likedIndexes: [] }),
   mount: (node: HTMLElement, state: AiCommentState, ctx: WidgetCtx<AiCommentState>) => {
     // If this comment has been persisted to markdown, the source rebuild
     // brings the blockquote in; nothing to paint client-side.
@@ -758,16 +771,43 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         </div>
       </form>
       <div class="ai-comment-widget__status" aria-live="polite" hidden></div>
+      <div class="ai-comment-widget__footer">
+        <button type="button" class="ai-comment-widget__distill-btn" data-ai-comment-action="distill-open">${ICON_DISTILL}<span>Distill to note</span></button>
+      </div>
+      <div class="ai-comment-widget__distill-panel" hidden>
+        <div class="ai-comment-widget__distill-loading" hidden>Asking Jarvis to distill the discussion…</div>
+        <div class="ai-comment-widget__distill-preview" hidden>
+          <label class="ai-comment-widget__distill-label">Save to:
+            <input type="text" class="ai-comment-widget__distill-path" />
+          </label>
+          <textarea class="ai-comment-widget__distill-content" rows="14"></textarea>
+          <div class="ai-comment-widget__distill-actions">
+            <button type="button" class="ai-comment-widget__distill-save" data-ai-comment-action="distill-save">Save</button>
+            <button type="button" data-ai-comment-action="distill-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
     `
     const peersEl = widget.querySelector<HTMLElement>(".ai-comment-widget__peers")!
     const statusEl = widget.querySelector<HTMLElement>(".ai-comment-widget__status")!
     const composerEl = widget.querySelector<HTMLFormElement>(".ai-comment-widget__composer")!
     const inputEl = widget.querySelector<HTMLTextAreaElement>(".ai-comment-widget__input")!
     const sendBtn = widget.querySelector<HTMLButtonElement>(".ai-comment-widget__send")!
+    const distillPanel = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-panel")!
+    const distillLoading = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-loading")!
+    const distillPreview = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-preview")!
+    const distillPathInput = widget.querySelector<HTMLInputElement>(".ai-comment-widget__distill-path")!
+    const distillContent = widget.querySelector<HTMLTextAreaElement>(".ai-comment-widget__distill-content")!
+    const distillSaveBtn = widget.querySelector<HTMLButtonElement>(".ai-comment-widget__distill-save")!
 
     const setStatus = (msg: string, kind: "info" | "error" | "ok" = "info") => {
       statusEl.hidden = false
       statusEl.textContent = msg
+      statusEl.dataset.kind = kind
+    }
+    const setStatusHTML = (html: string, kind: "info" | "error" | "ok" = "info") => {
+      statusEl.hidden = false
+      statusEl.innerHTML = html
       statusEl.dataset.kind = kind
     }
     const clearStatus = () => { statusEl.hidden = true; statusEl.textContent = "" }
@@ -777,9 +817,11 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     // store via direct .set() so sessionStorage stays current.
     const thread: CommentThreadTurn[] = state.thread.slice()
     const dismissedIndexes = new Set<number>(state.dismissedIndexes || [])
+    const likedIndexes = new Set<number>(state.likedIndexes || [])
     const persistInPlace = () => {
       state.thread = thread.slice()
       state.dismissedIndexes = Array.from(dismissedIndexes)
+      state.likedIndexes = Array.from(likedIndexes)
       getBlockWidgetRuntime().set("ai-comment", ctx.blockId, state)
     }
 
@@ -793,6 +835,25 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     function peerRole(peerIndex: number): "ai" | "user" {
       if (peerIndex === -1) return "ai"
       return thread[peerIndex]?.role ?? "ai"
+    }
+    function peerTimestamp(peerIndex: number): string | undefined {
+      if (peerIndex === -1) return state.commentCreatedAt
+      return thread[peerIndex]?.createdAt
+    }
+    function formatTimestamp(iso: string | undefined): string {
+      if (!iso) return ""
+      try {
+        const d = new Date(iso)
+        // Compact: "May 12, 23:48". Year shown only if not the current year.
+        const now = new Date()
+        const sameYear = d.getFullYear() === now.getFullYear()
+        const opts: Intl.DateTimeFormatOptions = sameYear
+          ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+          : { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+        return d.toLocaleString(undefined, opts)
+      } catch {
+        return ""
+      }
     }
     function renderOnePeer(peerIndex: number): HTMLElement | null {
       if (dismissedIndexes.has(peerIndex)) return null
@@ -812,11 +873,12 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
 
       const actions = document.createElement("div")
       actions.className = "ai-comment-peer__actions"
-      // v3 simplification: widget state IS the canonical record (no
-      // markdown write-back). Only two actions: ✗ dismiss + 💬 reply.
-      // "Not dismissed" == "kept" — persistence is via localStorage.
+      const liked = likedIndexes.has(peerIndex)
+      // AI peers: ♥ Like (cosmetic), ✗ Dismiss, 💬 Reply.
+      // User peers: only ✗ Dismiss.
       if (role === "ai") {
         actions.innerHTML = `
+          <button type="button" data-ai-comment-action="like" class="ai-comment-peer__icon-button${liked ? " ai-comment-peer__icon-button--liked" : ""}" aria-label="${liked ? "Unlike" : "Like"}" title="${liked ? "Unlike" : "Like"}">${ICON_HEART}</button>
           <button type="button" data-ai-comment-action="dismiss" class="ai-comment-peer__icon-button" aria-label="Dismiss" title="Dismiss">${ICON_CLOSE}</button>
           <button type="button" data-ai-comment-action="reply" class="ai-comment-peer__icon-button" aria-label="Reply" title="Reply">${ICON_REPLY}</button>
         `
@@ -832,6 +894,15 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       body.className = "ai-comment-peer__body"
       body.textContent = text
       card.appendChild(body)
+
+      const tsText = formatTimestamp(peerTimestamp(peerIndex))
+      if (tsText) {
+        const ts = document.createElement("div")
+        ts.className = "ai-comment-peer__timestamp"
+        ts.textContent = tsText
+        card.appendChild(ts)
+      }
+      if (liked) card.classList.add("ai-comment-peer--liked")
       return card
     }
 
@@ -864,7 +935,7 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       const bridgeOrigin = findBridgeOrigin(sidebar)
       if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
       const paragraphText = (node.textContent || "").replace(/\s+/g, " ").trim()
-      thread.push({ role: "user", text: userText })
+      thread.push({ role: "user", text: userText, createdAt: new Date().toISOString() })
       inputEl.value = ""
       renderAllPeers()
       persistInPlace()
@@ -884,7 +955,7 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         if (!res.ok || !payload.ok || !payload.reply) {
           throw new Error(payload.error || `bridge returned ${res.status}`)
         }
-        thread.push({ role: "ai", text: payload.reply })
+        thread.push({ role: "ai", text: payload.reply, createdAt: new Date().toISOString() })
         renderAllPeers()
         persistInPlace()
         clearStatus()
@@ -912,6 +983,103 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       void sendReply()
     })
 
+    // ── Distill (note from comment) ──────────────────────────────
+    let distillContentBuffer = ""
+    const closeDistill = () => {
+      distillPanel.hidden = true
+      distillLoading.hidden = true
+      distillPreview.hidden = true
+    }
+    const openDistill = async () => {
+      if (!sidebar) { setStatus("no sidebar", "error"); return }
+      const bridgeOrigin = findBridgeOrigin(sidebar)
+      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      const paragraphText = (node.textContent || "").replace(/\s+/g, " ").trim()
+      distillPanel.hidden = false
+      distillLoading.hidden = false
+      distillPreview.hidden = true
+      try {
+        const res = await fetch(`${bridgeOrigin}/api/ai-comments/distill`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+          body: JSON.stringify({
+            slug: sidebar.dataset.fileSlug || "",
+            paragraphText,
+            originalComment: state.comment,
+            thread,
+          }),
+        })
+        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; filename?: string; content?: string }
+        if (!res.ok || !payload.ok || !payload.content) {
+          throw new Error(payload.error || `bridge returned ${res.status}`)
+        }
+        // Append a wikilink footer pointing back at the source page so
+        // Quartz auto-generates a backlink on the source side. This is the
+        // only place the bidirectional graph edge gets created — the prompt
+        // deliberately tells Jarvis to write a self-standing note, so the
+        // linkage MUST be added by the client (not left to model variance).
+        const sourceSlug = (sidebar.dataset.fileSlug || "").replace(/^\/+|\/+$/g, "")
+        const wikilinkFooter = sourceSlug ? `\n\n---\n\n*Distilled from* [[${sourceSlug}]]\n` : ""
+        distillContentBuffer = payload.content + wikilinkFooter
+        const safeName = (payload.filename || "distilled-note").replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "distilled-note"
+        distillPathInput.value = `Thoughts/distilled/${safeName}.md`
+        distillContent.value = distillContentBuffer
+        distillLoading.hidden = true
+        distillPreview.hidden = false
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "distill failed"
+        distillLoading.hidden = true
+        distillPanel.hidden = true
+        setStatus(`distill failed: ${message}`, "error")
+      }
+    }
+    const saveDistill = async () => {
+      if (!sidebar) return
+      const bridgeOrigin = findBridgeOrigin(sidebar)
+      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      const targetPath = distillPathInput.value.trim()
+      const content = distillContent.value
+      if (!targetPath) { setStatus("path required", "error"); return }
+      distillSaveBtn.disabled = true
+      distillSaveBtn.textContent = "Saving…"
+      try {
+        const res = await fetch(`${bridgeOrigin}/api/ai-comments/distill/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+          body: JSON.stringify({ path: targetPath, content }),
+        })
+        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; slug?: string; filePath?: string }
+        if (!res.ok || !payload.ok) throw new Error(payload.error || `bridge returned ${res.status}`)
+        closeDistill()
+        const slug = payload.slug || ""
+        const slugUrl = slug ? `/${slug.replace(/^\/+/, "")}` : ""
+        // Build a real anchor + auto-navigate after quartz finishes its
+        // rebuild (~1.5-2s for a new file). The link is the user's escape
+        // hatch in case the auto-nav is too fast and 404s.
+        if (slugUrl) {
+          const safeUrl = slugUrl.replace(/[<>"]/g, "")
+          setStatusHTML(`Saved → <a href="${safeUrl}" data-distill-link>open the new note</a>`, "ok")
+          window.setTimeout(() => {
+            const navFn = (window as Window & { spaNavigate?: (url: URL, isBack?: boolean) => Promise<void> }).spaNavigate
+            try {
+              if (typeof navFn === "function") void navFn(new URL(safeUrl, window.location.origin), false)
+              else window.location.assign(safeUrl)
+            } catch {
+              window.location.assign(safeUrl)
+            }
+          }, 2200)
+        } else {
+          setStatus(`Saved to ${payload.filePath || targetPath}`, "ok")
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "save failed"
+        setStatus(`distill save failed: ${message}`, "error")
+      } finally {
+        distillSaveBtn.disabled = false
+        distillSaveBtn.textContent = "Save"
+      }
+    }
+
     widget.addEventListener("click", async (event) => {
       const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-ai-comment-action]")
       if (!target) return
@@ -921,6 +1089,11 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         closeComposer()
         return
       }
+
+      // Widget-level actions (no peer context).
+      if (action === "distill-open") { void openDistill(); return }
+      if (action === "distill-cancel") { closeDistill(); return }
+      if (action === "distill-save") { void saveDistill(); return }
 
       // Resolve which peer this action belongs to.
       const peerEl = target.closest<HTMLElement>(".ai-comment-peer")
@@ -943,6 +1116,14 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
 
       if (action === "reply") {
         openComposer()
+        return
+      }
+
+      if (action === "like") {
+        if (likedIndexes.has(peerIndex)) likedIndexes.delete(peerIndex)
+        else likedIndexes.add(peerIndex)
+        renderAllPeers()
+        persistInPlace()
         return
       }
     })
@@ -1007,12 +1188,15 @@ async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
       setAiStatus(sidebar, "Jarvis Read: nothing worth commenting.")
       return
     }
+    const nowIso = new Date().toISOString()
     for (const c of comments) {
       runtime.set<AiCommentState>("ai-comment", c.hash, {
         comment: c.comment,
+        commentCreatedAt: nowIso,
         thread: [],
         saved: false,
         dismissedIndexes: [],
+        likedIndexes: [],
       })
     }
     runtime.attachAll()
