@@ -86,7 +86,19 @@ async function mountViewer(host: HTMLElement, src: string): Promise<void> {
   ensureWorker()
   try {
     const url = resolveContentUrl(src)
-    const loadingTask = pdfjsLib.getDocument({ url })
+    // Point pdf.js at our vendored standard_fonts/ and cmaps/. Without
+    // these, pdf.js falls back to metric-substitute fonts for any
+    // glyphs it can't resolve from the PDF's embedded font — produces
+    // wide letter-spacing on titles in older papers (Type 1 fonts
+    // with custom encodings, e.g. the LSD-SLAM ECCV 2014 title).
+    const fontsRoot = siteRootUrl() + "static/pdfjs/standard_fonts/"
+    const cMapRoot = siteRootUrl() + "static/pdfjs/cmaps/"
+    const loadingTask = pdfjsLib.getDocument({
+      url,
+      standardFontDataUrl: fontsRoot,
+      cMapUrl: cMapRoot,
+      cMapPacked: true,
+    })
     const pdf = await loadingTask.promise
 
     host.replaceChildren()
