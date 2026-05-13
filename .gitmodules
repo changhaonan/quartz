@@ -1,0 +1,3 @@
+[submodule "claude_pty"]
+	path = claude_pty
+	url = git@github.com:changhaonan/claude_pty.git
