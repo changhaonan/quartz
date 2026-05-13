@@ -498,6 +498,20 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
     "Workflow: (a) write or edit the source markdown, (b) POST /api/sidebar/navigate with the destination slug, (c) confirm in one sentence what changed and where the user landed.",
   )
   lines.push("")
+  lines.push("== Files & embeds (PDFs, images, other) ==")
+  lines.push(
+    "Any non-Markdown file under content/ is published as-is by Quartz at its slugified URL. To embed one in a note, drop the file in content/<folder>/<name>.<ext> and reference it from markdown with the Obsidian-style embed: `![[<folder>/<name>.<ext>]]`.",
+  )
+  lines.push(
+    "Supported embed types: .pdf (rendered with a canvas-based pdf.js viewer — multi-page scroll, no flicker on reorder, gets the standard ⧉/💬/★/↕ block toolbar like text blocks); .png/.jpg/.jpeg/.gif/.bmp/.svg/.webp (native <img>); .mp4/.webm/.ogv/.mov/.mkv (native <video>); .mp3/.wav/.m4a/.ogg/.flac (native <audio>). The site config is at quartz_pty/quartz/plugins/transformers/ofm.ts if the user needs a new type.",
+  )
+  lines.push(
+    "Typical paper workflow when the user shares an arXiv link or a PDF URL: (1) curl -sSL <pdf-url> -o content/papers/<kebab-slug>.pdf — pick a short kebab-case slug from the paper title, e.g. distilling-knowledge.pdf. (2) Create or open content/papers/<slug>.md with a `# Title` heading, a one-line link to the arXiv abs page, the `![[papers/<slug>.pdf]]` embed, and any prompts the user wants Jarvis to pre-load. (3) POST /api/sidebar/navigate {\"slug\":\"papers/<slug>\"} so the browser opens straight to the new note. The viewer block-card supports drag-reorder, copy, comment, and \"★ Jarvis-here\" (per-block AI comment).",
+  )
+  lines.push(
+    "DO NOT inline-base64-encode files into markdown, paste binary data, or set up your own <iframe>/<embed> tags — the wikilink form is what the Quartz transformer recognises and what the canvas viewer hooks into. DO NOT save files outside content/ (won't be served); use `papers/`, `images/`, `attachments/` etc. as subfolder conventions.",
+  )
+  lines.push("")
   lines.push("== Bridge runtime + state ==")
   lines.push(
     "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
