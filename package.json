@@ -25,6 +25,7 @@
     "test:e2e:ai-comments-toggle": "node scripts/test-ai-comments-discuss-toggle.mjs",
     "test:e2e:ai-comments-full": "node scripts/test-ai-comments-full-flow.mjs",
     "test:e2e:blocks-demo": "node scripts/test-blocks-demo.mjs",
+    "test:e2e:sidebar-navigate": "node scripts/test-sidebar-navigate.mjs",
     "promote:staging": "bash scripts/promote.sh staging",
     "promote:prod": "bash scripts/promote.sh prod"
   },
