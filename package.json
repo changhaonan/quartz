@@ -1,6 +1,6 @@
 {
   "name": "@jackyzha0/quartz",
-  "description": "\ud83c\udf31 publish your digital garden and notes as a website",
+  "description": "🌱 publish your digital garden and notes as a website",
   "private": true,
   "version": "4.5.2",
   "type": "module",
@@ -77,6 +77,7 @@
     "mdast-util-to-string": "^4.0.0",
     "micromorph": "^0.4.5",
     "minimatch": "^10.1.1",
+    "pdfjs-dist": "^5.7.284",
     "pixi.js": "^8.15.0",
     "preact": "^10.28.2",
     "preact-render-to-string": "^6.6.5",

@@ -2,6 +2,7 @@ import { getBlockWidgetRuntime, BlockWidget, WidgetCtx } from "./block-widget-ru
 // Side-effect import: registers nav/click handlers for .block-card
 // toolbars on pages that opt in via frontmatter `blocks: true`.
 import "./block-toolbar.inline"
+import "./pdf-viewer.inline"
 
 type BridgeHealth = {
   ok?: boolean

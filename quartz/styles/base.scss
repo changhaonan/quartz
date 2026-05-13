@@ -628,22 +628,53 @@ ol.overflow {
   border-radius: 5px;
 }
 
-// PDF embeds are portrait-oriented (US Letter is roughly 8.5:11) and
-// benefit from a real reading height. Use a viewport-relative min-height
-// so it scales on small screens but still gives a comfortable reading
-// surface on a laptop.
+// Canvas-based PDF viewer (replaces the bare iframe). The
+// .pdf-viewer host is filled at runtime by pdf-viewer.inline.ts with
+// one .pdf-viewer__page per PDF page; each page renders into a
+// <canvas>. Canvases survive DOM reorder without reloading, which
+// iframes don't — that's the whole point.
 figure.pdf-embed {
   margin: 1.2em 0;
   display: flex;
   flex-direction: column;
   gap: 0.4em;
 
-  iframe.pdf {
+  .pdf-viewer {
     width: 100%;
     height: min(80vh, 900px);
+    overflow-y: auto;
     border: 1px solid var(--lightgray);
     border-radius: 5px;
     background: var(--light);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    padding: 0.6em;
+    contain: layout style;  // keep its scroll/layout isolated
+  }
+
+  .pdf-viewer__page {
+    width: 100%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+    overflow: hidden;
+    display: block;
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: auto !important;
+    }
+  }
+
+  .pdf-viewer__status {
+    padding: 1.5em;
+    text-align: center;
+    color: var(--gray);
+    font-size: 0.9em;
+  }
+  .pdf-viewer__status--error {
+    color: #b34750;
   }
 
   .pdf-embed__caption {
@@ -655,9 +686,9 @@ figure.pdf-embed {
   }
 }
 
-// Fallback for any leftover bare iframe.pdf (e.g. raw HTML in a
-// markdown file that didn't go through ofm).
-iframe.pdf:not(figure.pdf-embed iframe) {
+// Fallback for any leftover bare iframe.pdf (raw HTML in a markdown
+// file that didn't go through ofm, e.g. legacy content).
+iframe.pdf {
   width: 100%;
   height: min(80vh, 900px);
   border-radius: 5px;

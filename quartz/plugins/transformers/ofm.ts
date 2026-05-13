@@ -261,11 +261,23 @@ export const ObsidianFlavoredMarkdown: QuartzTransformerPlugin<Partial<Options>>
                   } else if ([".pdf"].includes(ext)) {
                     // Wrap in <figure> so BlockPage (which only wraps
                     // WRAPPABLE_TAGS) gives it a block-card / margin-
-                    // comment overlay. The data-pdf-src attribute lets
-                    // BlockPage hash by URL when text content is empty.
+                    // comment overlay. The data-pdf-src attribute is
+                    // the identity used both by the PDF viewer runtime
+                    // (pdf-viewer.inline.ts) AND by BlockPage's hash
+                    // computation for media blocks. We emit an empty
+                    // <div class="pdf-viewer"> host instead of an
+                    // <iframe> — the runtime fills it with <canvas>
+                    // elements, which survive DOM reorder without
+                    // reloading (iframes don't).
                     return {
                       type: "html",
-                      value: `<figure class="pdf-embed" data-pdf-src="${url}"><iframe src="${url}" class="pdf" title="PDF: ${path.basename(url)}"></iframe><figcaption class="pdf-embed__caption"><a href="${url}" target="_blank" rel="noopener">Open ${path.basename(url)} ↗</a></figcaption></figure>`,
+                      // data-persist on .pdf-viewer tells micromorph
+                      // to leave its children alone during soft-morph.
+                      // The runtime adds <canvas> children at mount;
+                      // without data-persist, every spa-nav / block
+                      // reorder would wipe them and the PDF would
+                      // re-render from scratch (flicker).
+                      value: `<figure class="pdf-embed" data-pdf-src="${url}"><div class="pdf-viewer" data-persist="true" role="region" aria-label="PDF: ${path.basename(url)}"></div><figcaption class="pdf-embed__caption"><a href="${url}" target="_blank" rel="noopener">Open ${path.basename(url)} ↗</a></figcaption></figure>`,
                     }
                   } else {
                     const block = anchor
