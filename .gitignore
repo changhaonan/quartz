@@ -10,6 +10,10 @@ private/
 .replit
 replit.nix
 
+# Local-only artifacts (dev logs, e2e screenshots — not for git history)
+.logs/
+scripts/.test-output/
+
 # content/ is tracked by its own independent git repo.
 # Keep the upstream .gitkeep marker; ignore everything else.
 /content/*
