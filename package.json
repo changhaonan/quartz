@@ -27,6 +27,7 @@
     "test:e2e:blocks-demo": "node scripts/test-blocks-demo.mjs",
     "test:e2e:sidebar-navigate": "node scripts/test-sidebar-navigate.mjs",
     "test:e2e:block-link-clickable": "node scripts/test-block-link-clickable.mjs",
+    "test:e2e:pdf-embed": "node scripts/test-pdf-embed.mjs",
     "promote:staging": "bash scripts/promote.sh staging",
     "promote:prod": "bash scripts/promote.sh prod"
   },

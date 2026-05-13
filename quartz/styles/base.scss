@@ -621,11 +621,45 @@ ol.overflow {
   overflow-y: hidden;
 }
 
-.external-embed.youtube,
-iframe.pdf {
+.external-embed.youtube {
   aspect-ratio: 16 / 9;
   height: 100%;
   width: 100%;
+  border-radius: 5px;
+}
+
+// PDF embeds are portrait-oriented (US Letter is roughly 8.5:11) and
+// benefit from a real reading height. Use a viewport-relative min-height
+// so it scales on small screens but still gives a comfortable reading
+// surface on a laptop.
+figure.pdf-embed {
+  margin: 1.2em 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+
+  iframe.pdf {
+    width: 100%;
+    height: min(80vh, 900px);
+    border: 1px solid var(--lightgray);
+    border-radius: 5px;
+    background: var(--light);
+  }
+
+  .pdf-embed__caption {
+    font-size: 0.85em;
+    color: var(--gray);
+    text-align: right;
+    a { color: var(--gray); }
+    a:hover { color: var(--secondary); }
+  }
+}
+
+// Fallback for any leftover bare iframe.pdf (e.g. raw HTML in a
+// markdown file that didn't go through ofm).
+iframe.pdf:not(figure.pdf-embed iframe) {
+  width: 100%;
+  height: min(80vh, 900px);
   border-radius: 5px;
 }
 

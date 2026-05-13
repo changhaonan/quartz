@@ -259,9 +259,13 @@ export const ObsidianFlavoredMarkdown: QuartzTransformerPlugin<Partial<Options>>
                       value: `<audio src="${url}" controls></audio>`,
                     }
                   } else if ([".pdf"].includes(ext)) {
+                    // Wrap in <figure> so BlockPage (which only wraps
+                    // WRAPPABLE_TAGS) gives it a block-card / margin-
+                    // comment overlay. The data-pdf-src attribute lets
+                    // BlockPage hash by URL when text content is empty.
                     return {
                       type: "html",
-                      value: `<iframe src="${url}" class="pdf"></iframe>`,
+                      value: `<figure class="pdf-embed" data-pdf-src="${url}"><iframe src="${url}" class="pdf" title="PDF: ${path.basename(url)}"></iframe><figcaption class="pdf-embed__caption"><a href="${url}" target="_blank" rel="noopener">Open ${path.basename(url)} ↗</a></figcaption></figure>`,
                     }
                   } else {
                     const block = anchor

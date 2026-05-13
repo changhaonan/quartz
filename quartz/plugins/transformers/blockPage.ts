@@ -54,12 +54,30 @@ export const BlockPage: QuartzTransformerPlugin = () => {
               || String(file.data.frontmatter?.blocks).toLowerCase() === "false"
             if (explicitlyDisabled) return
 
+            // Find a media-embed source we can hash when the element
+            // has no text content (PDF, video, audio embeds). Today the
+            // only one in scope is the PDF <figure data-pdf-src="...">
+            // emitted by ofm.ts. Returns "" if nothing usable.
+            const findEmbedSrc = (el: Element): string => {
+              const direct = String(el.properties?.["data-pdf-src"] || "")
+              if (direct) return direct
+              // Walk first level of children for an iframe with src.
+              for (const child of el.children || []) {
+                if (child.type === "element" && child.tagName === "iframe") {
+                  const src = String(child.properties?.["src"] || "")
+                  if (src) return src
+                }
+              }
+              return ""
+            }
+
             const wrapElement = (el: Element): Element => {
               let hash = String(el.properties?.["data-paragraph-hash"] || "")
               if (!hash) {
-                const text = toString(el)
-                if (!text || !text.trim()) return el  // skip empty
-                hash = hashText(text)
+                let identity = toString(el).trim()
+                if (!identity) identity = findEmbedSrc(el)
+                if (!identity) return el  // truly nothing to hash → skip
+                hash = hashText(identity)
                 el.properties = el.properties || {}
                 el.properties["data-block-id"] = hash  // also stamp inner so client can match either
               }
@@ -101,8 +119,11 @@ export const BlockPage: QuartzTransformerPlugin = () => {
             const newChildren: HTMLRoot["children"] = []
             for (const child of tree.children) {
               if (child.type === "element" && WRAPPABLE_TAGS.has(child.tagName)) {
-                const text = toString(child)
-                if (text && text.trim()) {
+                // Wrap if there's either textual content OR a media
+                // embed src we can hash (PDF figure, etc.).
+                const hasText = Boolean(toString(child).trim())
+                const hasEmbed = Boolean(findEmbedSrc(child))
+                if (hasText || hasEmbed) {
                   newChildren.push(wrapElement(child))
                   continue
                 }
