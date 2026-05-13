@@ -495,7 +495,13 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
     `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self POST /api/sidebar/navigate '{"slug":"Thoughts/raw"}'`,
   )
   lines.push(
-    "The slug is relative to the site root (no leading slash, no .md). The active sidebar receives the directive over SSE and calls window.spaNavigate. Use this for 'take me to X' / 'show me the X note' requests.",
+    "The slug is relative to the site root (no leading slash, no .md). The active sidebar receives the directive over SSE and calls window.spaNavigate. Use this for 'take me to X' / 'show me the X note' / 'open the new draft' requests.",
+  )
+  lines.push(
+    "DO NOT use `open file://…` to surface a page — it opens the raw .md in the local editor, not the user's browser. DO NOT claim 'the route hasn't picked it up yet' — Quartz watches content/ and serves any new file at /<path-minus-content/-minus-.md> within ~1s of write. After writing content/X/Y.md, navigate to /X/Y immediately.",
+  )
+  lines.push(
+    "Workflow: (a) write or edit the source markdown, (b) POST /api/sidebar/navigate with the destination slug, (c) confirm in one sentence what changed and where the user landed.",
   )
   lines.push("")
   lines.push("== Bridge runtime + state ==")
