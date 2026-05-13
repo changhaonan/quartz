@@ -59,7 +59,11 @@ export const BlockPage: QuartzTransformerPlugin = () => {
             // only one in scope is the PDF <figure data-pdf-src="...">
             // emitted by ofm.ts. Returns "" if nothing usable.
             const findEmbedSrc = (el: Element): string => {
-              const direct = String(el.properties?.["data-pdf-src"] || "")
+              // hast normalizes data-* attrs to camelCase when reading
+              // raw HTML (rehype-raw), so check both spellings.
+              const direct =
+                String(el.properties?.["dataPdfSrc"] || "") ||
+                String(el.properties?.["data-pdf-src"] || "")
               if (direct) return direct
               // Walk first level of children for an iframe with src.
               for (const child of el.children || []) {
@@ -74,8 +78,12 @@ export const BlockPage: QuartzTransformerPlugin = () => {
             const wrapElement = (el: Element): Element => {
               let hash = String(el.properties?.["data-paragraph-hash"] || "")
               if (!hash) {
-                let identity = toString(el).trim()
-                if (!identity) identity = findEmbedSrc(el)
+                // For media blocks (figure containing iframe), prefer
+                // the embed src as the identity. The figcaption text
+                // would otherwise win and produce a hash the bridge
+                // can't reconstruct from the `![[file.pdf]]` source.
+                const embedSrc = findEmbedSrc(el)
+                let identity = embedSrc || toString(el).trim()
                 if (!identity) return el  // truly nothing to hash → skip
                 hash = hashText(identity)
                 el.properties = el.properties || {}

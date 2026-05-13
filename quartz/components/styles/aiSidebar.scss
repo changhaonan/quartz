@@ -895,6 +895,55 @@ body.block-dragging-active .block-card:hover {
 // Drag-and-drop reorder visuals.
 .block-card[draggable="true"] {
   cursor: grab;
+  position: relative;
+}
+
+// Always-visible drag rail on the left edge. Necessary for media blocks
+// (PDF iframe, video, etc.) where the inner content captures pointer
+// events and the user can't grab the card from inside. Subtle when
+// idle; pronounced on hover so the affordance is obvious. The rail is
+// just visual — the whole block-card stays draggable, the rail just
+// guarantees a hit zone outside the iframe.
+.block-card[draggable="true"]::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 120ms ease;
+  pointer-events: none;  // pass-through; drag is on the card
+}
+
+.block-card[draggable="true"]:hover::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--gray) 35%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+// Make the rail more pronounced for blocks whose interior swallows
+// drag (the iframe-containing figure). Always-on hint so users know
+// the rail is where to grab.
+.block-card--figure[draggable="true"]::before,
+.block-card[draggable="true"]:has(iframe)::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--gray) 22%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+.block-card--figure[draggable="true"]:hover::before,
+.block-card[draggable="true"]:has(iframe):hover::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--secondary) 60%, var(--gray)) 0 2px,
+    transparent 2px 5px
+  );
 }
 
 .block-card--dragging {

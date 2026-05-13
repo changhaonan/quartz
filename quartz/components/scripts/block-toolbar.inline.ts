@@ -43,9 +43,17 @@ function bindBlockToolbars(): void {
       if (!blockId) return
 
       if (action === "copy") {
-        const para = card.querySelector<HTMLElement>("p[data-paragraph-hash]")
-        const text = (para?.innerText || para?.textContent || "").trim()
-        if (!text) return
+        // Copy the block's body text regardless of element kind. Was
+        // previously p-only, which silently failed (clipboard untouched)
+        // on heading / list / blockquote / pre / table / figure blocks.
+        const inner = card.querySelector<HTMLElement>(
+          "p[data-paragraph-hash], p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure",
+        )
+        const text = (inner?.innerText || inner?.textContent || "").trim()
+        if (!text) {
+          flashFeedback(target, "Nothing to copy", true)
+          return
+        }
         try {
           await navigator.clipboard.writeText(text)
           flashFeedback(target, "Copied")
