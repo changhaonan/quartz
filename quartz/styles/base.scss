@@ -646,11 +646,12 @@ figure.pdf-embed {
     border: 1px solid var(--lightgray);
     border-radius: 5px;
     background: var(--light);
-    display: flex;
-    flex-direction: column;
-    gap: 0.6em;
     padding: 0.6em;
     contain: layout style;  // keep its scroll/layout isolated
+    // NOT flex: a flex column would distribute the host's height
+    // across 9 page children (≈ 90px each) and compress the canvases
+    // to a sliver. Plain block layout lets each page take its
+    // canvas's natural height; the parent scrolls.
   }
 
   .pdf-viewer__page {
@@ -660,10 +661,12 @@ figure.pdf-embed {
     border-radius: 2px;
     overflow: hidden;
     display: block;
+    margin-bottom: 0.6em;
+    &:last-child { margin-bottom: 0; }
     canvas {
       display: block;
-      width: 100% !important;
-      height: auto !important;
+      width: 100%;
+      height: auto;
     }
   }
 
