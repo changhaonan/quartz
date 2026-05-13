@@ -31,7 +31,15 @@ export default ((opts?: Partial<FolderContentOptions>) => {
     const { tree, fileData, allFiles, cfg } = props
 
     const trie = (props.ctx.trie ??= trieFromAllFiles(allFiles))
-    const folder = trie.findNode(fileData.slug!.split("/"))
+    // For a user-supplied `<folder>/index.md`, fileData.slug ends in
+    // "/index" — but the file trie only carries the folder node
+    // (children are siblings of index.md). Drop the trailing "index"
+    // segment so lookup hits the folder. Without this, FolderContent
+    // returns null and the whole article + page-listing disappear,
+    // leaving only the page header.
+    const slugParts = fileData.slug!.split("/")
+    if (slugParts[slugParts.length - 1] === "index") slugParts.pop()
+    const folder = trie.findNode(slugParts)
     if (!folder) {
       return null
     }
