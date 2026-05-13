@@ -112,11 +112,22 @@ const inFlight = new WeakMap<HTMLElement, string>()
 
 async function mountViewer(host: HTMLElement, src: string): Promise<void> {
   const existing = mounted.get(host)
-  if (existing && existing.src === src) return  // already mounted
+  if (existing && existing.src === src) {
+    // "Already mounted" must also verify per-page cards still exist
+    // in the DOM. After a block-reorder drop, micromorph diffs the
+    // article and strips runtime-added .block-card--pdf-page nodes
+    // (they're not in the morph target HTML), leaving the
+    // .pdf-viewer host empty even though our WeakMap still believes
+    // it's mounted. Without this check the user sees the PDF
+    // container reposition but its per-page cards + comments vanish.
+    if (host.querySelector(".block-card--pdf-page")) return
+    existing.observer?.disconnect()
+    mounted.delete(host)  // fall through to rebuild
+  }
   if (inFlight.get(host) === src) return  // already mounting same src
 
   // Teardown any previous viewer on this host (different src).
-  if (existing) {
+  if (existing && mounted.get(host) === existing) {
     existing.observer?.disconnect()
     host.replaceChildren()
   }
