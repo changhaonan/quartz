@@ -805,3 +805,141 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+// ── Block-page rendering (frontmatter `blocks: true`) ─────────────
+// Each top-level <p> in the article body is wrapped in a card with a
+// hover toolbar (copy / comment / move). Visual: subtle left border to
+// hint blockness, padding for breathing room, fade-in toolbar on hover.
+.block-card {
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.6rem 0.4rem 0.7rem;
+  position: relative;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.block-card:hover {
+  background: color-mix(in srgb, var(--lightgray) 18%, var(--light));
+  border-left-color: color-mix(in srgb, var(--secondary) 35%, var(--lightgray));
+}
+
+.block-card > p:first-child {
+  margin: 0;
+}
+
+.block-card__toolbar {
+  align-items: center;
+  display: flex;
+  gap: 0.2rem;
+  opacity: 0;
+  position: absolute;
+  right: 0.4rem;
+  top: 0.3rem;
+  transition: opacity 120ms ease;
+}
+
+.block-card:hover .block-card__toolbar,
+.block-card:focus-within .block-card__toolbar {
+  opacity: 1;
+}
+
+// While a drag is in flight, suppress hover-revealed toolbars on every
+// block. The drop indicator + the dragged block's outline are the only
+// visual feedback we want during drag.
+body.block-dragging-active .block-card__toolbar {
+  opacity: 0 !important;
+}
+
+body.block-dragging-active .block-card:hover {
+  background: transparent;
+  border-left-color: transparent;
+}
+
+.block-card__btn {
+  align-items: center;
+  background: var(--light);
+  border: 1px solid var(--lightgray);
+  border-radius: 4px;
+  color: var(--gray);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.78rem;
+  height: 1.6rem;
+  justify-content: center;
+  min-width: 1.6rem;
+  padding: 0 0.3rem;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.block-card__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--secondary) 18%, var(--light));
+  color: var(--dark);
+}
+
+.block-card__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.block-card__btn--ok {
+  background: color-mix(in srgb, #4ec9b0 22%, var(--light));
+  color: #2a8a76;
+}
+
+.block-card__btn--error {
+  background: color-mix(in srgb, #e06c75 22%, var(--light));
+  color: #b34750;
+}
+
+// Drag-and-drop reorder visuals.
+.block-card[draggable="true"] {
+  cursor: grab;
+}
+
+.block-card--dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+  outline: 2px dashed color-mix(in srgb, var(--secondary) 65%, var(--gray));
+  outline-offset: 2px;
+}
+
+// (No background highlight on the drop target — the blue bar alone is
+// the visual feedback per UX feedback. data-drop-position is still set
+// in JS for hit-test bookkeeping but doesn't paint anything.)
+
+.block-drop-indicator {
+  background: var(--secondary);
+  border-radius: 3px;
+  box-shadow: 0 0 8px 2px color-mix(in srgb, var(--secondary) 55%, transparent);
+  height: 5px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 9999;
+}
+
+.block-drop-indicator::before,
+.block-drop-indicator::after {
+  background: var(--secondary);
+  border-radius: 50%;
+  content: "";
+  height: 11px;
+  position: absolute;
+  top: -3px;
+  width: 11px;
+}
+
+.block-drop-indicator::before { left: -5px; }
+.block-drop-indicator::after  { right: -5px; }
+
+// Brief pulse on the just-dropped card to signal "request sent, waiting
+// for source rewrite + soft-morph". Goes away ~2s later when quartz
+// rebuilds and the morph replaces this DOM.
+.block-card--reordering {
+  animation: block-card-pulse 1s ease-in-out infinite;
+}
+
+@keyframes block-card-pulse {
+  0%, 100% { background: color-mix(in srgb, var(--secondary) 8%, var(--light)); }
+  50%      { background: color-mix(in srgb, var(--secondary) 22%, var(--light)); }
+}

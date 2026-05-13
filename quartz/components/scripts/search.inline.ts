@@ -532,7 +532,8 @@ async function fillDocument(data: ContentIndex) {
 
 document.addEventListener("nav", async (e: CustomEventMap["nav"]) => {
   const currentSlug = e.detail.url
-  const data = await fetchData
+  // Read window.fetchData so soft-rebuild content updates surface in search.
+  const data = await ((window as unknown as { fetchData?: Promise<unknown> }).fetchData ?? fetchData)
   const searchElement = document.getElementsByClassName("search")
   for (const element of searchElement) {
     await setupSearch(element, currentSlug, data)

@@ -176,7 +176,9 @@ async function setupExplorer(currentSlug: FullSlug) {
       serializedExplorerState.map((entry: FolderState) => [entry.path, entry.collapsed]),
     )
 
-    const data = await fetchData
+    // Read window.fetchData so a soft-rebuild that refreshed the cache
+    // (see quartz/plugins/index.ts WS handler) gets the new tree here.
+    const data = await ((window as unknown as { fetchData?: Promise<unknown> }).fetchData ?? fetchData)
     const entries = [...Object.entries(data)] as [FullSlug, ContentDetails][]
     const trie = FileTrieNode.fromEntries(entries)
 

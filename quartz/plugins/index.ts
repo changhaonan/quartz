@@ -42,6 +42,17 @@ export function getStaticResourcesFromPlugins(ctx: BuildCtx) {
         // dispatched 'nav' event. Fall back to a hard reload if for some
         // reason spaNavigate isn't ready yet.
         socket.addEventListener('message', () => {
+          // Refresh the cached contentIndex.json promise BEFORE soft-morph
+          // so Explorer / Graph re-render with the latest file tree (catches
+          // newly-created notes like distill output).
+          try {
+            const path = document.querySelector('link[rel="alternate"], base')
+            // Reuse the existing fetchData URL by re-deriving from current
+            // page's static path. Just refetch with cache-busting query.
+            window.fetchData = fetch(\`/static/contentIndex.json?ts=\${Date.now()}\`).then(r => r.json())
+          } catch (e) {
+            console.warn('failed to refresh contentIndex:', e)
+          }
           if (typeof window.spaNavigate === 'function') {
             try {
               window.spaNavigate(new URL(window.location.href), true)

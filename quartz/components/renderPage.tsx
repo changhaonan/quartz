@@ -29,7 +29,11 @@ export function pageResources(
   staticResources: StaticResources,
 ): StaticResources {
   const contentIndexPath = joinSegments(baseDir, "static/contentIndex.json")
-  const contentIndexScript = `const fetchData = fetch("${contentIndexPath}").then(data => data.json())`
+  // Quartz fork patch: expose fetchData as a re-assignable window var so
+  // our soft-reload (see quartz/plugins/index.ts) can re-fetch a fresh
+  // contentIndex.json on dev rebuild and the Explorer / Graph components
+  // pick up newly-created notes without a full page reload.
+  const contentIndexScript = `window.fetchData = fetch("${contentIndexPath}").then(data => data.json()); var fetchData = window.fetchData;`
 
   const resources: StaticResources = {
     css: [

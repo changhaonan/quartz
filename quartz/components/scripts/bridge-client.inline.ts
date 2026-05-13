@@ -1,4 +1,7 @@
 import { getBlockWidgetRuntime, BlockWidget, WidgetCtx } from "./block-widget-runtime.inline"
+// Side-effect import: registers nav/click handlers for .block-card
+// toolbars on pages that opt in via frontmatter `blocks: true`.
+import "./block-toolbar.inline"
 
 type BridgeHealth = {
   ok?: boolean
@@ -684,12 +687,26 @@ type AiCommentResponse = {
 function collectPageParagraphs(): Array<{ hash: string; text: string }> {
   const out: Array<{ hash: string; text: string }> = []
   const seen = new Set<string>()
-  for (const p of Array.from(document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"))) {
-    const hash = p.dataset.paragraphHash || ""
-    const text = (p.textContent || "").replace(/\s+/g, " ").trim()
+  // Prefer .block-card[data-block-id] (works on any wrapped element type
+  // — paragraphs, lists, code, headings, blockquotes…). Fall back to
+  // bare <p data-paragraph-hash> on pages that don't opt into blocks.
+  const cards = Array.from(document.querySelectorAll<HTMLElement>("article .block-card[data-block-id]"))
+  for (const card of cards) {
+    const hash = card.dataset.blockId || ""
+    const text = (card.querySelector("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")?.textContent || "")
+      .replace(/\s+/g, " ").trim()
     if (!hash || !text || seen.has(hash)) continue
     seen.add(hash)
     out.push({ hash, text })
+  }
+  if (cards.length === 0) {
+    for (const p of Array.from(document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"))) {
+      const hash = p.dataset.paragraphHash || ""
+      const text = (p.textContent || "").replace(/\s+/g, " ").trim()
+      if (!hash || !text || seen.has(hash)) continue
+      seen.add(hash)
+      out.push({ hash, text })
+    }
   }
   return out
 }
@@ -738,16 +755,29 @@ const ICON_DISTILL = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidde
 
 const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
   type: "ai-comment",
-  rootSelector: "article p[data-paragraph-hash]",
+  rootSelector: "article .block-card[data-block-id], article p[data-paragraph-hash]",
   match: (node) => {
-    if (!(node instanceof HTMLParagraphElement)) return null
-    return node.dataset.paragraphHash || null
+    // Block-page mode: every wrapped block (any tag) gets data-block-id
+    // on its .block-card container. Match those first.
+    if (node instanceof HTMLDivElement && node.classList.contains("block-card")) {
+      return node.dataset.blockId || null
+    }
+    // Non-blocks pages: bare <p data-paragraph-hash>. Skip if it's
+    // already inside a block-card (the wrapper case is handled above).
+    if (node instanceof HTMLParagraphElement && !node.closest(".block-card")) {
+      return node.dataset.paragraphHash || null
+    }
+    return null
   },
   defaultState: () => ({ comment: "", thread: [], saved: false, dismissedIndexes: [], likedIndexes: [] }),
   mount: (node: HTMLElement, state: AiCommentState, ctx: WidgetCtx<AiCommentState>) => {
-    // If this comment has been persisted to markdown, the source rebuild
-    // brings the blockquote in; nothing to paint client-side.
-    if (state.saved || !state.comment) return
+    // If this comment has been retired by ✗-on-original, skip entirely.
+    if (state.saved) return
+    // If there's nothing to show — no AI comment, no thread, no
+    // composer-open hint — skip. (composerInitiallyOpen flag is set by
+    // the block-page toolbar's "comment on this block" entry point.)
+    const hasComposerHint = Boolean((state as { composerInitiallyOpen?: boolean }).composerInitiallyOpen)
+    if (!state.comment && state.thread.length === 0 && !hasComposerHint) return
 
     // Defensive: don't double-attach if a previous mount didn't fully clean up.
     if (node.dataset.aiCommentAttached === "1") return
@@ -923,6 +953,16 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       composerEl.hidden = false
       window.setTimeout(() => inputEl.focus(), 0)
     }
+
+    // If the block-page toolbar seeded composerInitiallyOpen, open the
+    // composer now and consume the flag so subsequent remounts don't
+    // keep opening it after the user closes it.
+    if (hasComposerHint) {
+      openComposer()
+      const cur = state as AiCommentState & { composerInitiallyOpen?: boolean }
+      delete cur.composerInitiallyOpen
+      getBlockWidgetRuntime().set("ai-comment", ctx.blockId, cur)
+    }
     const closeComposer = () => {
       composerEl.hidden = true
       inputEl.value = ""
@@ -940,10 +980,24 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       renderAllPeers()
       persistInPlace()
       // Close composer immediately on send — the user's reply is already
-      // visible as a peer card and the AI's response will appear inline
-      // when it arrives. Status line shows the "thinking" indicator so
-      // the user knows something's happening.
+      // visible as a peer card and the AI's response (if any) will append
+      // inline when it arrives.
       closeComposer()
+
+      // Annotation-only mode: when there's no AI original comment AND no
+      // prior AI turns in the thread, this widget is a pure user-note.
+      // Don't call /discuss (there's nothing for Jarvis to respond to);
+      // also don't close the composer — let the user keep adding more
+      // annotations on this same block without re-clicking the toolbar.
+      const hasAnyAi = state.comment || thread.some((t) => t.role === "ai")
+      if (!hasAnyAi) {
+        clearStatus()
+        sendBtn.disabled = false
+        sendBtn.textContent = "Send"
+        openComposer()  // re-open for the next annotation
+        return
+      }
+
       setStatus("Jarvis is thinking…", "info")
       try {
         const res = await fetch(`${bridgeOrigin}/api/ai-comments/discuss`, {

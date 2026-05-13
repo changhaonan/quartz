@@ -76,6 +76,7 @@ const config: QuartzConfig = {
       Plugin.Description(),
       Plugin.Latex({ renderEngine: "katex" }),
       Plugin.ParagraphHash(),
+      Plugin.BlockPage(),
     ],
     filters: [Plugin.RemoveDrafts()],
     emitters: [

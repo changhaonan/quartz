@@ -24,6 +24,7 @@
     "test:e2e:prod": "BASE=http://127.0.0.1:8080 BRIDGE=http://127.0.0.1:3000 TOUCH_FILE=../quartz_pty_prod/content/index.md node scripts/test-sidebar-resume.mjs",
     "test:e2e:ai-comments-toggle": "node scripts/test-ai-comments-discuss-toggle.mjs",
     "test:e2e:ai-comments-full": "node scripts/test-ai-comments-full-flow.mjs",
+    "test:e2e:blocks-demo": "node scripts/test-blocks-demo.mjs",
     "promote:staging": "bash scripts/promote.sh staging",
     "promote:prod": "bash scripts/promote.sh prod"
   },
