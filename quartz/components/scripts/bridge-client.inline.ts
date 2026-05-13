@@ -1141,17 +1141,23 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
           headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
           body: JSON.stringify({ path: targetPath, content }),
         })
-        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; slug?: string; filePath?: string }
+        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; slug?: string; filePath?: string; warnings?: Array<{ rule: string; message: string }> }
         if (!res.ok || !payload.ok) throw new Error(payload.error || `bridge returned ${res.status}`)
         closeDistill()
         const slug = payload.slug || ""
         const slugUrl = slug ? `/${slug.replace(/^\/+/, "")}` : ""
+        // Surface validator warnings in the status pill so the user
+        // (and Jarvis on its next pass) sees them. Hard errors already
+        // throw above; this is the soft-warning channel.
+        const warningSuffix = payload.warnings && payload.warnings.length
+          ? ` · ${payload.warnings.length} warning(s): ${payload.warnings.map((w) => w.message).join("; ")}`
+          : ""
         // Build a real anchor + auto-navigate after quartz finishes its
         // rebuild (~1.5-2s for a new file). The link is the user's escape
         // hatch in case the auto-nav is too fast and 404s.
         if (slugUrl) {
           const safeUrl = slugUrl.replace(/[<>"]/g, "")
-          setStatusHTML(`Saved → <a href="${safeUrl}" data-distill-link>open the new note</a>`, "ok")
+          setStatusHTML(`Saved → <a href="${safeUrl}" data-distill-link>open the new note</a>${warningSuffix}`, "ok")
           window.setTimeout(() => {
             const navFn = (window as Window & { spaNavigate?: (url: URL, isBack?: boolean) => Promise<void> }).spaNavigate
             try {
@@ -1162,7 +1168,7 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
             }
           }, 2200)
         } else {
-          setStatus(`Saved to ${payload.filePath || targetPath}`, "ok")
+          setStatus(`Saved to ${payload.filePath || targetPath}${warningSuffix}`, "ok")
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "save failed"
