@@ -218,10 +218,61 @@ async function mountViewer(host: HTMLElement, src: string): Promise<void> {
     )
     host.querySelectorAll<HTMLElement>(".pdf-viewer__page").forEach((p) => observer.observe(p))
 
-    // Add the expand/collapse toggle on the figcaption (or just
-    // before, if no figcaption). Idempotent: only one toggle per
-    // figure, regardless of re-mounts.
+    // Add the expand/collapse toggle + zoom controls on the
+    // figcaption (or just before, if no figcaption). Idempotent:
+    // only one set of controls per figure, regardless of re-mounts.
     if (figure && !figure.querySelector(".pdf-embed__mode-toggle")) {
+      // Page-width zoom: persisted per pdfSrc so reopening the same
+      // paper preserves the user's zoom level.
+      const widthKey = `pdfPageMaxWidth:${src}`
+      const minW = 360
+      const maxW = 1200
+      const stepW = 80
+      const defaultW = 720
+      const initial = (() => {
+        try {
+          const stored = Number(window.localStorage?.getItem(widthKey))
+          if (Number.isFinite(stored) && stored >= minW && stored <= maxW) return stored
+        } catch {}
+        return defaultW
+      })()
+      const applyWidth = (w: number) => {
+        figure.style.setProperty("--pdf-page-max-width", `${w}px`)
+        try { window.localStorage?.setItem(widthKey, String(w)) } catch {}
+        // Re-render any already-rendered page so its canvas matches
+        // the new CSS width (otherwise the rasterized text stays at
+        // the old scale until the user scrolls past + back).
+        host.querySelectorAll<HTMLElement>(".pdf-viewer__page[data-rendered='1']").forEach((p) => {
+          p.dataset.rendered = ""
+          p.replaceChildren()
+        })
+        host.querySelectorAll<HTMLElement>(".pdf-viewer__page").forEach((p) => observer.observe(p))
+      }
+      applyWidth(initial)
+      let currentW = initial
+
+      const widthDown = document.createElement("button")
+      widthDown.type = "button"
+      widthDown.className = "pdf-embed__zoom-btn"
+      widthDown.title = "Narrower pages (smaller text)"
+      widthDown.setAttribute("aria-label", "Narrower PDF pages")
+      widthDown.textContent = "A−"
+      widthDown.addEventListener("click", () => {
+        currentW = Math.max(minW, currentW - stepW)
+        applyWidth(currentW)
+      })
+
+      const widthUp = document.createElement("button")
+      widthUp.type = "button"
+      widthUp.className = "pdf-embed__zoom-btn"
+      widthUp.title = "Wider pages (larger text)"
+      widthUp.setAttribute("aria-label", "Wider PDF pages")
+      widthUp.textContent = "A+"
+      widthUp.addEventListener("click", () => {
+        currentW = Math.min(maxW, currentW + stepW)
+        applyWidth(currentW)
+      })
+
       const toggle = document.createElement("button")
       toggle.type = "button"
       toggle.className = "pdf-embed__mode-toggle"
@@ -238,9 +289,18 @@ async function mountViewer(host: HTMLElement, src: string): Promise<void> {
         // — collapsed→expanded reveals pages 2+ that were display:none.
         host.querySelectorAll<HTMLElement>(".pdf-viewer__page").forEach((p) => observer.observe(p))
       })
+
       const cap = figure.querySelector(".pdf-embed__caption")
-      if (cap) cap.insertAdjacentElement("afterbegin", toggle)
-      else figure.appendChild(toggle)
+      if (cap) {
+        // Insert as a group so the buttons sit together at the start.
+        cap.insertAdjacentElement("afterbegin", widthUp)
+        cap.insertAdjacentElement("afterbegin", widthDown)
+        cap.insertAdjacentElement("afterbegin", toggle)
+      } else {
+        figure.appendChild(toggle)
+        figure.appendChild(widthDown)
+        figure.appendChild(widthUp)
+      }
     }
 
     mounted.set(host, { src, pdf, observer })

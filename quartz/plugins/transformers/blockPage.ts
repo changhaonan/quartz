@@ -124,9 +124,26 @@ export const BlockPage: QuartzTransformerPlugin = () => {
               }
             }
 
+            // PDF figures are NOT wrapped in a figure-level block-card
+            // — the per-page synthetic cards that pdf-viewer.inline.ts
+            // adds at runtime are the unit of interaction. A nested
+            // figure-card-of-page-cards is confusing (two ★ scopes,
+            // toolbar shadowing) and the figure-level drag handle
+            // makes the per-page cards "pump out" visually on drop.
+            const isPdfFigure = (el: Element): boolean => {
+              if (el.tagName !== "figure") return false
+              const cls = el.properties?.["className"]
+              const classes = Array.isArray(cls) ? cls.map(String) : [String(cls || "")]
+              return classes.some((c) => c.split(/\s+/).includes("pdf-embed"))
+            }
+
             const newChildren: HTMLRoot["children"] = []
             for (const child of tree.children) {
               if (child.type === "element" && WRAPPABLE_TAGS.has(child.tagName)) {
+                if (isPdfFigure(child)) {
+                  newChildren.push(child)  // pass through; per-page cards handle interaction
+                  continue
+                }
                 // Wrap if there's either textual content OR a media
                 // embed src we can hash (PDF figure, etc.).
                 const hasText = Boolean(toString(child).trim())

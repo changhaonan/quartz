@@ -655,13 +655,19 @@ figure.pdf-embed {
   }
 
   .pdf-viewer__page {
+    // Cap the page width so a wide article doesn't blow up text size.
+    // The per-figure --pdf-page-max-width variable is set by the
+    // zoom buttons (A−/A+) in the figcaption, persisted to
+    // localStorage per pdfSrc. Default ~ 720px keeps text close to
+    // print legibility on a typical desktop.
     width: 100%;
+    max-width: var(--pdf-page-max-width, 720px);
     background: white;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     border-radius: 2px;
     overflow: hidden;
     display: block;
-    margin-bottom: 0.6em;
+    margin: 0 auto 0.6em;
     &:last-child { margin-bottom: 0; }
     canvas {
       display: block;
@@ -682,6 +688,12 @@ figure.pdf-embed {
       display: flex;
       align-items: flex-start;
       gap: 0.8em;
+      // Cap total row width = (capped page) + (annotation gutter) +
+      // gap, then center within the .pdf-viewer scroll area. Stops a
+      // very wide article from blowing up canvas+gutter to fill all
+      // horizontal space.
+      max-width: calc(var(--pdf-page-max-width, 720px) + 320px);
+      margin: 0 auto;
     }
     .pdf-viewer__page {
       flex: 1 1 auto;
@@ -721,8 +733,9 @@ figure.pdf-embed {
     }
   }
 
-  // Expand/collapse toggle on the figcaption.
-  .pdf-embed__mode-toggle {
+  // Expand/collapse toggle + zoom buttons on the figcaption.
+  .pdf-embed__mode-toggle,
+  .pdf-embed__zoom-btn {
     appearance: none;
     background: transparent;
     border: 1px solid var(--lightgray);
@@ -731,11 +744,16 @@ figure.pdf-embed {
     padding: 0.2em 0.6em;
     border-radius: 4px;
     cursor: pointer;
-    margin-right: 0.6em;
+    margin-right: 0.4em;
     &:hover {
       border-color: var(--secondary);
       color: var(--secondary);
     }
+  }
+  .pdf-embed__zoom-btn {
+    font-family: var(--bodyFont, sans-serif);
+    font-weight: 600;
+    min-width: 2.4em;
   }
 
   // Narrow viewports: stack canvas above annotation column (the
