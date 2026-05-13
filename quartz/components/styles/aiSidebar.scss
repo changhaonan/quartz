@@ -824,6 +824,25 @@
   border-left-color: color-mix(in srgb, var(--secondary) 35%, var(--lightgray));
 }
 
+// PDF container: minimal wrapper, drag-only. No background tint or
+// left-border (the figure inside has its own framing); just a small
+// ↕ handle visible on hover so users discover it's draggable.
+.block-card--pdf-container {
+  margin: 0;
+  padding: 0;
+  border-left: none;
+}
+.block-card--pdf-container:hover {
+  background: transparent;
+  border-left-color: transparent;
+}
+.block-card__toolbar--drag-only {
+  // Position OUTSIDE the figure (top edge) so it doesn't shadow
+  // the per-page toolbars inside.
+  top: -0.4rem;
+  right: 0.6rem;
+}
+
 .block-card > p:first-child {
   margin: 0;
 }

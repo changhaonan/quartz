@@ -124,12 +124,17 @@ export const BlockPage: QuartzTransformerPlugin = () => {
               }
             }
 
-            // PDF figures are NOT wrapped in a figure-level block-card
-            // — the per-page synthetic cards that pdf-viewer.inline.ts
-            // adds at runtime are the unit of interaction. A nested
-            // figure-card-of-page-cards is confusing (two ★ scopes,
-            // toolbar shadowing) and the figure-level drag handle
-            // makes the per-page cards "pump out" visually on drop.
+            // PDF figures get a SPECIAL block-card wrapper:
+            //   - draggable, so the paper can be reordered as a unit
+            //     (nothing inside is draggable; ↕ is hint-only)
+            //   - NO ⧉/💬/★ in the toolbar — those are per-page now
+            //     (the synthetic block-cards in pdf-viewer.inline.ts).
+            //     Showing them at the figure level is confusing (two ★
+            //     scopes, two "comment on this" entry points).
+            // The drag handler (block-toolbar.inline.ts) excludes
+            // .block-card--pdf-page from its allCards reorder set so
+            // the per-page cards inside don't pop out as siblings on
+            // drop ("everything explodes").
             const isPdfFigure = (el: Element): boolean => {
               if (el.tagName !== "figure") return false
               const cls = el.properties?.["className"]
@@ -137,11 +142,42 @@ export const BlockPage: QuartzTransformerPlugin = () => {
               return classes.some((c) => c.split(/\s+/).includes("pdf-embed"))
             }
 
+            const wrapPdfFigure = (el: Element): Element => {
+              const embedSrc = findEmbedSrc(el)
+              const hash = hashText(embedSrc || toString(el).trim() || "pdf")
+              el.properties = el.properties || {}
+              el.properties["data-block-id"] = hash
+              return {
+                type: "element",
+                tagName: "div",
+                properties: {
+                  id: `block-${hash}`,
+                  className: ["block-card", "block-card--pdf-container"],
+                  "data-block-id": hash,
+                  draggable: "true",
+                },
+                children: [
+                  el,
+                  {
+                    type: "element",
+                    tagName: "div",
+                    properties: {
+                      className: ["block-card__toolbar", "block-card__toolbar--drag-only"],
+                      "aria-hidden": "true",
+                    },
+                    children: [
+                      makeToolbarBtn("move", "Drag to reorder this PDF (use per-page ★ for comments)", "↕", true),
+                    ],
+                  },
+                ],
+              }
+            }
+
             const newChildren: HTMLRoot["children"] = []
             for (const child of tree.children) {
               if (child.type === "element" && WRAPPABLE_TAGS.has(child.tagName)) {
                 if (isPdfFigure(child)) {
-                  newChildren.push(child)  // pass through; per-page cards handle interaction
+                  newChildren.push(wrapPdfFigure(child))
                   continue
                 }
                 // Wrap if there's either textual content OR a media

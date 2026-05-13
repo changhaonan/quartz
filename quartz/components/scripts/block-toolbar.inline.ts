@@ -286,7 +286,12 @@ function bindBlockDragDelegation(): void {
 
     const article = card.closest("article")
     if (!article) return
-    const allCards = Array.from(article.querySelectorAll<HTMLElement>(".block-card[data-block-id]"))
+    // Exclude per-page PDF synthetic cards: they live nested inside a
+    // figure container and aren't article-level reorderable units.
+    // Including them in the order list caused the "drag explodes the
+    // PDF" bug where the drop loop's parent.appendChild reparented
+    // every per-page card out of the figure into the article body.
+    const allCards = Array.from(article.querySelectorAll<HTMLElement>(".block-card[data-block-id]:not(.block-card--pdf-page)"))
     const newOrder = allCards.filter((c) => c !== dragSrcCard)
     const targetIdx = newOrder.indexOf(card)
     if (targetIdx < 0) return
