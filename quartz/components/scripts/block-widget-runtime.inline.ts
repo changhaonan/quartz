@@ -65,7 +65,11 @@ const SCROLL_RESTORE_TTL_MS = 10_000
 
 class BlockWidgetRuntime {
   private widgets = new Map<string, BlockWidget<WidgetState>>()
-  private store = new Map<string, PageStore>()
+  // GLOBAL store, keyed only by `${type}::${blockId}` (block hashes are
+  // content-derived, so renaming a page doesn't shift them — annotations
+  // follow the content). Previously this was Map<pageSlug, PageStore>
+  // which orphaned annotations on rename.
+  private store: PageStore = new Map()
   private cleanups = new Map<InstanceKey, () => void>()  // per-instance, per attachAll cycle
 
   constructor() {
@@ -76,13 +80,25 @@ class BlockWidgetRuntime {
     try {
       const raw = window.localStorage.getItem(STORE_KEY)
       if (!raw) return
-      const parsed = JSON.parse(raw) as Record<string, Record<InstanceKey, WidgetState>>
+      const parsed = JSON.parse(raw)
       if (!parsed || typeof parsed !== "object") return
-      for (const [pageSlug, instances] of Object.entries(parsed)) {
-        if (!instances || typeof instances !== "object") continue
-        const pageMap: PageStore = new Map()
-        for (const [k, v] of Object.entries(instances)) pageMap.set(k, v)
-        this.store.set(pageSlug, pageMap)
+      // Detect old format: { "/some-page": { "ai-comment::abc": state } }
+      // vs new format: { "ai-comment::abc": state }. Old format has page
+      // slugs as top-level keys (typically starting with "/"); new format
+      // has type::hash keys (no leading "/" and contains "::").
+      const topKeys = Object.keys(parsed)
+      const looksOldFormat = topKeys.length > 0 && topKeys.every((k) => !k.includes("::"))
+      if (looksOldFormat) {
+        // Flatten — preserve most-recent state when the same instanceKey
+        // appears under multiple pages (rare; just overwrite in order).
+        for (const instances of Object.values(parsed) as Array<Record<InstanceKey, WidgetState>>) {
+          if (!instances || typeof instances !== "object") continue
+          for (const [k, v] of Object.entries(instances)) this.store.set(k, v)
+        }
+        // Persist new format right away so we don't keep migrating.
+        this.persistToStorage()
+      } else {
+        for (const [k, v] of Object.entries(parsed)) this.store.set(k, v as WidgetState)
       }
     } catch {
       // localStorage unavailable / malformed JSON — just start empty.
@@ -91,12 +107,8 @@ class BlockWidgetRuntime {
 
   private persistToStorage(): void {
     try {
-      const obj: Record<string, Record<InstanceKey, WidgetState>> = {}
-      for (const [pageSlug, pageMap] of this.store.entries()) {
-        const inst: Record<InstanceKey, WidgetState> = {}
-        for (const [k, v] of pageMap.entries()) inst[k] = v
-        obj[pageSlug] = inst
-      }
+      const obj: Record<InstanceKey, WidgetState> = {}
+      for (const [k, v] of this.store.entries()) obj[k] = v
       window.localStorage.setItem(STORE_KEY, JSON.stringify(obj))
     } catch {
       // local storage full / disabled — best effort, in-memory still works
@@ -115,35 +127,25 @@ class BlockWidgetRuntime {
     }
   }
 
-  private pageStore(): PageStore {
-    const key = this.pageKey()
-    let s = this.store.get(key)
-    if (!s) {
-      s = new Map()
-      this.store.set(key, s)
-    }
-    return s
-  }
-
   private instanceKey(type: string, blockId: string): InstanceKey {
     return `${type}::${blockId}`
   }
 
   /** Seed (or replace) state for a specific widget instance. */
   set<TState>(type: string, blockId: string, state: TState): void {
-    this.pageStore().set(this.instanceKey(type, blockId), state)
+    this.store.set(this.instanceKey(type, blockId), state)
     this.persistToStorage()
   }
 
   /** Read current state (or undefined if none). */
   get<TState>(type: string, blockId: string): TState | undefined {
-    return this.pageStore().get(this.instanceKey(type, blockId)) as TState | undefined
+    return this.store.get(this.instanceKey(type, blockId)) as TState | undefined
   }
 
   /** Drop a single widget instance. */
   delete(type: string, blockId: string): void {
     const key = this.instanceKey(type, blockId)
-    this.pageStore().delete(key)
+    this.store.delete(key)
     const cleanup = this.cleanups.get(key)
     if (cleanup) {
       try { cleanup() } catch {}
@@ -164,7 +166,6 @@ class BlockWidgetRuntime {
     this.cleanups.clear()
 
     const pageSlug = this.pageKey()
-    const pageStore = this.pageStore()
     for (const widget of this.widgets.values()) {
       const root = widget.rootSelector
         ? document.querySelectorAll<HTMLElement>(widget.rootSelector)
@@ -173,13 +174,13 @@ class BlockWidgetRuntime {
         const blockId = widget.match(node)
         if (!blockId) continue
         const key = this.instanceKey(widget.type, blockId)
-        let state = pageStore.get(key) as WidgetState
+        let state = this.store.get(key) as WidgetState
         if (state === undefined) continue  // no seeded state -> nothing to mount
         const ctx: WidgetCtx<WidgetState> = {
           blockId,
           pageSlug,
           setState: (next) => {
-            pageStore.set(key, next)
+            this.store.set(key, next)
             this.persistToStorage()  // must go through persistence — see Phase A bug log
             // Re-mount this single instance: cleanup current, then mount fresh.
             const prevCleanup = this.cleanups.get(key)
@@ -198,15 +199,32 @@ class BlockWidgetRuntime {
     }
   }
 
-  /** Drop every instance of `type` on the current page. Used when a
-   * widget kind is being re-seeded en masse (e.g., user clicks AI Read
-   * again and we want stale comments gone). */
+  /** Drop every instance of `type` that targets a block currently
+   * present in the DOM. Used when a widget kind is being re-seeded en
+   * masse (e.g., user clicks Jarvis Read again and we want stale
+   * comments on this page gone). We scope by visible block ids so we
+   * don't nuke annotations sitting on other (unloaded) pages — the
+   * store is now global. */
   clearByType(type: string): void {
     const prefix = `${type}::`
-    const pageStore = this.pageStore()
-    for (const key of Array.from(pageStore.keys())) {
+    const widget = this.widgets.get(type)
+    const visibleIds = new Set<string>()
+    if (widget) {
+      const root = widget.rootSelector
+        ? document.querySelectorAll<HTMLElement>(widget.rootSelector)
+        : document.querySelectorAll<HTMLElement>("article *, article")
+      for (const node of Array.from(root)) {
+        const id = widget.match(node)
+        if (id) visibleIds.add(id)
+      }
+    }
+    for (const key of Array.from(this.store.keys())) {
       if (!key.startsWith(prefix)) continue
-      pageStore.delete(key)
+      const blockId = key.slice(prefix.length)
+      // If we couldn't introspect (no widget registered), fall back to
+      // global clear — preserves old behaviour for that edge case.
+      if (widget && !visibleIds.has(blockId)) continue
+      this.store.delete(key)
       const cleanup = this.cleanups.get(key)
       if (cleanup) {
         try { cleanup() } catch {}
@@ -247,14 +265,15 @@ class BlockWidgetRuntime {
     } catch {}
   }
 
-  /** Clear all state for the current page (useful when user explicitly
-   * resets, not typically called automatically). */
+  /** Clear all state, period (useful when user explicitly resets — not
+   * typically called automatically). The store is content-keyed and
+   * global, so this nukes annotations for every page. */
   clearPage(): void {
     for (const fn of this.cleanups.values()) {
       try { fn() } catch {}
     }
     this.cleanups.clear()
-    this.store.delete(this.pageKey())
+    this.store.clear()
     this.persistToStorage()
   }
 }

@@ -72,7 +72,7 @@ the wrong worktree, or against an occupied port.
 ```bash
 nvm use                  # honours .nvmrc (Node 25)
 npm ci
-npm run quartz -- build --serve   # default :8080, talks to bridge :3210
+npm run dev              # quartz :8090, ws :3020, talks to bridge :3210
 npm run check            # tsc --noEmit + prettier
 npm run test:runtime     # 63 mock-bridge tests
 ```

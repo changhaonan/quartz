@@ -11,6 +11,7 @@ two flavours, both running on the same machine, both isolated:
 | ------- | ----------- | --------- | ----------- | ---------------------------- |
 | prod    | 8080        | 3010      | 3000        | `claude_pty_prod/`           |
 | staging | 8081        | 3011      | 3001        | `claude_pty_staging/`        |
+| dev     | 8090        | 3020      | 3210        | `claude_pty/` (dev tree)     |
 
 Each side of the pair has its own data directory: separate inbox,
 agent-memory, session registry, content tree. **Production runs

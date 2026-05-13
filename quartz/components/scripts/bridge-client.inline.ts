@@ -263,11 +263,15 @@ function currentSessionBinding(
   ])
 }
 
+// Binding that determines when we should (re-)inject the workspace
+// primer into the PTY. Intentionally workspace-scoped only — fileSlug
+// and stateDir used to be part of this, which caused a re-injection on
+// every page navigation. The agent only needs the workspace primer
+// once per session; if the user wants the agent to read a specific
+// page, they ask, and the agent can `cat content/X.md` directly.
 function currentPageContextBinding(sidebar: HTMLElement): string {
   return JSON.stringify([
     resolveWorkspaceId(sidebar),
-    sidebar.dataset.fileSlug || "",
-    sidebar.dataset.stateDir || "",
     sidebar.dataset.roleId || "",
     sidebar.dataset.agent || DEFAULT_AI_AGENT,
     sidebar.dataset.cwd || "",
@@ -441,11 +445,14 @@ async function createBridgeSession(
   return { sessionId, resumed: Boolean(payload.resumed) }
 }
 
+// Workspace-level primer sent ONCE per PTY session at creation time.
+// Intentionally does not include the current page's slug or content —
+// the agent can resolve "the current page" from conversation context
+// or by reading content/ directly when the user references a note.
+// Re-injection on every page nav was the prior behaviour; the user
+// opted out of that ("不要再把这页的内容全灌进去了").
 function buildWorkspaceContext(sidebar: HTMLElement): string {
   const workspaceId = resolveWorkspaceId(sidebar)
-  const pageWorkspaceId = sidebar.dataset.workspaceId || "not declared"
-  const fileSlug = sidebar.dataset.fileSlug || "unknown"
-  const stateDir = sidebar.dataset.stateDir || ""
   const roleId = sidebar.dataset.roleId || "generalist"
   const agent = sidebar.dataset.agent || "codex"
   const cwd = sidebar.dataset.cwd || ""
@@ -453,9 +460,6 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   const lines = [
     "[QUARTZ WORKSPACE CONTEXT]",
     `workspaceId: ${workspaceId}`,
-    `pageWorkspaceId: ${pageWorkspaceId}`,
-    `fileSlug: ${fileSlug}`,
-    `stateDir: ${stateDir}`,
     `roleId: ${roleId}`,
     `agent: ${agent}`,
   ]
@@ -463,29 +467,18 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   if (cwd) lines.push(`workspaceRoot: ${cwd}`)
   if (model) lines.push(`model: ${model}`)
   lines.push("")
-  lines.push("You are running inside the AI Workspace for this Quartz page.")
+  lines.push("You are running inside the AI Workspace for this Quartz site.")
   lines.push(
-    "Treat this Markdown file as the source of intent and its declared .runtime folder as the page-owned artifact store.",
+    "Markdown notes live under content/ (relative to workspaceRoot). Read/edit them directly with shell tools (cat, sed, printf, tee). The Quartz dev server watches content/ and the user's browser soft-refreshes within ~1s of any save — no manual rebuild needed.",
   )
   if (cwd) {
     lines.push(
       `IMPORTANT: write files only under workspaceRoot (${cwd}). Do NOT trust your auto-memory or CLAUDE.md for "the project root" — multiple parallel quartz environments (dev/staging/prod) coexist on this machine and only workspaceRoot is authoritative for this session.`,
     )
   }
-  if (fileSlug) {
-    lines.push("")
-    lines.push("== Source markdown for the current page ==")
-    lines.push(`Path: content/${fileSlug}.md  (relative to workspaceRoot)`)
-    lines.push(
-      "You CAN read and write this file directly with shell tools (cat, sed, printf, tee, your editor of choice). The Quartz dev server watches the content/ folder and the user's browser soft-refreshes within ~1s of any save — no manual rebuild needed.",
-    )
-    lines.push(
-      "When the user says 'record this' / 'add this' / '记下来' / '加进笔记' or similar, JUST DO IT — append or edit the file directly. Don't preface with 'I'll explain the intended edit'. The user will see the change in their browser immediately.",
-    )
-    lines.push(
-      "For larger restructures (reordering, deleting, refactoring sections), one short sentence saying what you're about to do is enough — then do it.",
-    )
-  }
+  lines.push(
+    "The user's currently-open page changes as they browse; this primer is sent only at session start, so don't assume you know which page is open. When 'this page' / 'this note' matters, ask or infer from the user's words. When the user says 'record this' / 'add this' / '记下来' / '加进笔记', do it — append/edit the relevant file in content/ directly, no preamble.",
+  )
   lines.push("")
   lines.push("== Navigation ==")
   lines.push(
@@ -508,11 +501,6 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   lines.push(
     "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
   )
-  if (fileSlug && stateDir) {
-    lines.push(
-      `Read this page's runtime manifest: bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${encodeURIComponent(fileSlug)}&stateDir=${encodeURIComponent(stateDir)}'`,
-    )
-  }
   lines.push("[/QUARTZ WORKSPACE CONTEXT]")
   return lines.join("\n")
 }
@@ -1026,10 +1014,17 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
 
       setStatus("Jarvis is thinking…", "info")
       try {
+        // Bridge zod caps thread at .max(N). We slide a window of the
+        // most recent turns instead of the whole history so threads
+        // don't break once they outgrow the cap (originalComment +
+        // paragraphText carry the original framing separately, so
+        // dropping the oldest back-and-forth is safe).
+        const THREAD_WINDOW = 20
+        const threadForSend = thread.length > THREAD_WINDOW ? thread.slice(-THREAD_WINDOW) : thread
         const res = await fetch(`${bridgeOrigin}/api/ai-comments/discuss`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
-          body: JSON.stringify({ paragraphText, originalComment: state.comment, thread }),
+          body: JSON.stringify({ paragraphText, originalComment: state.comment, thread: threadForSend }),
         })
         const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reply?: string }
         if (!res.ok || !payload.ok || !payload.reply) {

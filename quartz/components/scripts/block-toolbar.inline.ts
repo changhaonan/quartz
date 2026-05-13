@@ -182,6 +182,18 @@ function findBlockCard(target: EventTarget | null): HTMLElement | null {
   return target.closest<HTMLElement>(".block-card[data-block-id][draggable='true']")
 }
 
+// Interactive descendants of a draggable block-card whose own
+// mouse/click semantics must win over the card-level drag. Without
+// this, clicking an <a> inside a card starts a link-drag in Chrome
+// (text/uri-list goes into dataTransfer) and the user's click never
+// becomes a navigation. Same shape for buttons / form controls so the
+// toolbar icons keep working.
+const INTERACTIVE_SELECTOR = "a, button, input, textarea, select, label, summary, [contenteditable='true']"
+function targetIsInteractive(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest(INTERACTIVE_SELECTOR))
+}
+
 let blockDragDelegated = false
 function bindBlockDragDelegation(): void {
   if (blockDragDelegated) return
@@ -190,6 +202,12 @@ function bindBlockDragDelegation(): void {
   document.addEventListener("dragstart", (event) => {
     const card = findBlockCard(event.target)
     if (!card) return
+    // Don't hijack drags that originated on an interactive element —
+    // we want the native click (anchor nav, button activation) to win.
+    if (targetIsInteractive(event.target)) {
+      event.preventDefault()
+      return
+    }
     dragSrcCard = card
     card.classList.add("block-card--dragging")
     document.body.classList.add("block-dragging-active")
