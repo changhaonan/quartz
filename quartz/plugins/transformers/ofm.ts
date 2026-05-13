@@ -277,7 +277,7 @@ export const ObsidianFlavoredMarkdown: QuartzTransformerPlugin<Partial<Options>>
                       // without data-persist, every spa-nav / block
                       // reorder would wipe them and the PDF would
                       // re-render from scratch (flicker).
-                      value: `<figure class="pdf-embed" data-pdf-src="${url}"><div class="pdf-viewer" data-persist="true" role="region" aria-label="PDF: ${path.basename(url)}"></div><figcaption class="pdf-embed__caption"><a href="${url}" target="_blank" rel="noopener">Open ${path.basename(url)} ↗</a></figcaption></figure>`,
+                      value: `<figure class="pdf-embed" data-pdf-src="${url}"><div class="pdf-viewer" data-persist="true" data-persist-key="pdf:${url}" role="region" aria-label="PDF: ${path.basename(url)}"></div><figcaption class="pdf-embed__caption"><a href="${url}" target="_blank" rel="noopener">Open ${path.basename(url)} ↗</a></figcaption></figure>`,
                     }
                   } else {
                     const block = anchor

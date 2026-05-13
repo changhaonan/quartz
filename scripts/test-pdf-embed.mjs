@@ -102,7 +102,7 @@ const canvasBefore = await page.evaluate(() => {
 if (!canvasBefore || canvasBefore.startsWith("__FAIL__")) fail(`couldn't read canvas: ${canvasBefore}`)
 ok(`canvas[0] pixel signature captured (${canvasBefore.length} chars)`)
 
-phase("5. drag-reorder the PDF block via the bridge API")
+phase("5. drag-reorder the PDF block via the same path the real handler uses")
 snapshot(PDF_MD)
 const blocks = await page.$$eval("article .block-card[data-block-id]", (els) =>
   els.map((el) => {
@@ -112,12 +112,38 @@ const blocks = await page.$$eval("article .block-card[data-block-id]", (els) =>
   }),
 )
 const pdfIdx = blocks.findIndex((b) => b.hash === blockCardInfo.blockId)
-if (pdfIdx < 0) fail("PDF block not in DOM order list")
-if (pdfIdx === 0) fail("PDF block already at top, can't swap up")
-// Swap PDF with the block above it.
+if (pdfIdx <= 0) fail("PDF block at top, can't swap up")
 const swapped = blocks.slice()
 ;[swapped[pdfIdx - 1], swapped[pdfIdx]] = [swapped[pdfIdx], swapped[pdfIdx - 1]]
+
+// Begin sampling the canvas every 100ms BEFORE the reorder fires.
+// "No flicker" means the canvas exists with non-zero pixels at every
+// sample point through the morph window. This catches the bug where
+// micromorph wipes the canvas children for ~150ms even if the
+// before/after pixels match.
+let samples = []
+const sampleStart = Date.now()
+const samplerId = setInterval(async () => {
+  try {
+    const r = await page.evaluate(() => {
+      const c = document.querySelector(".pdf-viewer canvas")
+      return c ? { exists: true, w: c.width, h: c.height } : { exists: false }
+    })
+    samples.push({ t: Date.now() - sampleStart, ...r })
+  } catch (e) { samples.push({ t: Date.now() - sampleStart, err: e.message }) }
+}, 100)
+
+// Real-flow simulation: optimistic DOM rearrange + WS-suppress flag +
+// POST. This is what block-toolbar.inline.ts does on a real drag.
+await page.evaluate(({ targetHash, partnerHash }) => {
+  const article = document.querySelector("article")
+  const target = article?.querySelector(`.block-card[data-block-id="${targetHash}"]`)
+  const partner = article?.querySelector(`.block-card[data-block-id="${partnerHash}"]`)
+  if (target && partner) partner.parentElement?.insertBefore(target, partner)
+}, { targetHash: blockCardInfo.blockId, partnerHash: blocks[pdfIdx - 1].hash })
+
 const swapRes = await page.evaluate(async ({ bridge, blockOrder }) => {
+  window.__quartzSuppressNextRebuild = Date.now() + 3000
   const r = await fetch(`${bridge}/api/blocks/reorder`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
@@ -130,29 +156,31 @@ if (swapRes.status !== 200 || !swapRes.body?.ok) {
 }
 ok("reorder POST accepted")
 
-phase("6. wait for soft-morph; assert canvas pixels UNCHANGED")
-// Quartz rebuild + WS push + spaNavigate soft-morph takes ~1-2s.
-await sleep(2500)
-const dragLanded = await page.evaluate((expectedHash) => {
-  const card = document.querySelector(`article .block-card[data-block-id="${expectedHash}"]`)
-  if (!card) return { error: "PDF block-card missing after morph" }
-  const idx = Array.from(document.querySelectorAll("article .block-card[data-block-id]")).indexOf(card)
-  return { idx, hasCanvas: !!card.querySelector("canvas") }
-}, blockCardInfo.blockId)
-if (dragLanded.error) fail(dragLanded.error)
-if (!dragLanded.hasCanvas) fail("canvas missing after morph (block-card was rebuilt?)")
-ok(`PDF block at new index ${dragLanded.idx}, canvas survived morph`)
+// Sample for 3 seconds — enough to cover bridge write + quartz
+// rebuild + WS push + (would-be) morph window.
+await sleep(3000)
+clearInterval(samplerId)
 
+phase("6. assert canvas exists at every sample (no flicker)")
+const gaps = samples.filter((s) => !s.exists).length
+const total = samples.length
+note(`samples: ${total}, canvas-missing samples: ${gaps}`)
+if (gaps > 0) {
+  const firstGap = samples.findIndex((s) => !s.exists)
+  fail(`canvas disappeared at sample ${firstGap}/${total} (~${samples[firstGap]?.t}ms after reorder POST). ${gaps} gap samples total.`)
+}
+ok(`canvas present at all ${total} samples through the morph window — zero flicker`)
+
+// Sanity check: the canvas STILL has its painted content (not blanked).
 const canvasAfter = await page.evaluate(() => {
   const c = document.querySelector(".pdf-viewer canvas")
   if (!c) return null
   try { return c.toDataURL("image/png").slice(0, 200) } catch (e) { return `__FAIL__:${e.message}` }
 })
-if (canvasBefore === canvasAfter) {
-  ok("canvas pixel signature UNCHANGED — no reload, no flicker")
-} else {
-  fail(`canvas pixels changed after reorder → canvas re-rendered (regression). before[..40]="${canvasBefore?.slice(0, 40)}" after[..40]="${canvasAfter?.slice(0, 40)}"`)
+if (canvasBefore !== canvasAfter) {
+  fail(`canvas pixels changed during the (suppressed) morph window — it was repainted somewhere. before[..40]="${canvasBefore?.slice(0, 40)}" after[..40]="${canvasAfter?.slice(0, 40)}"`)
 }
+ok("canvas pixels byte-identical (no repaint occurred)")
 
 phase("7. margin-comment 💬 still mounts on the PDF block")
 await page.locator(`.block-card[data-block-id="${blockCardInfo.blockId}"]`).hover()

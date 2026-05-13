@@ -42,6 +42,25 @@ export function getStaticResourcesFromPlugins(ctx: BuildCtx) {
         // dispatched 'nav' event. Fall back to a hard reload if for some
         // reason spaNavigate isn't ready yet.
         socket.addEventListener('message', () => {
+          // Optional client-side suppression: when the client just made
+          // a self-driven mutation (e.g. block reorder) it can set
+          // window.__quartzSuppressNextRebuild = Date.now() + ttlMs to
+          // tell us the live DOM is already correct, no morph needed.
+          // Used by block-toolbar.inline.ts after /api/blocks/reorder
+          // so that the resulting WS push doesn't wipe live runtime
+          // state (PDF.js canvases, etc.).
+          try {
+            const until = Number(window.__quartzSuppressNextRebuild || 0)
+            if (until > Date.now()) {
+              // Still refresh the cached content index so future nav
+              // sees the change, but skip the article morph.
+              try {
+                window.fetchData = fetch(\`/static/contentIndex.json?ts=\${Date.now()}\`).then(r => r.json())
+              } catch {}
+              return
+            }
+          } catch {}
+
           // Refresh the cached contentIndex.json promise BEFORE soft-morph
           // so Explorer / Graph re-render with the latest file tree (catches
           // newly-created notes like distill output).

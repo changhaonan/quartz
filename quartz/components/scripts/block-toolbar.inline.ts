@@ -297,6 +297,16 @@ function bindBlockDragDelegation(): void {
       return { hash: c.dataset.blockId || "", prefix: text.slice(0, 60) }
     })
     try {
+      // Tell the dev WS handler (quartz/plugins/index.ts) to skip the
+      // soft-morph triggered by THIS reorder. Our optimistic DOM
+      // rearrange above already put the block in the right place; the
+      // morph would only redundantly diff the article, and as a side
+      // effect wipe runtime-only DOM state like PDF.js canvases inside
+      // .pdf-viewer (since the new HTML's empty placeholder doesn't
+      // match the populated live DOM). 3 second window covers
+      // bridge-write → quartz-rebuild → ws-push.
+      ;(window as Window & { __quartzSuppressNextRebuild?: number }).__quartzSuppressNextRebuild =
+        Date.now() + 3000
       const res = await fetch(`${bridgeOrigin}/api/blocks/reorder`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },

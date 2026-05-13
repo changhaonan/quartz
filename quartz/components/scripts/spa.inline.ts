@@ -114,6 +114,46 @@ function writeAiContext(to: Element | null, context: AiContext) {
   if (previousSignature !== nextSignature) clearAiSessionForContextChange(to)
 }
 
+// For every [data-persist] element in the live DOM that has children
+// (added at runtime — e.g. PDF.js canvases inside .pdf-viewer), find
+// the matching empty placeholder in `nextBody` and inject a deep
+// CLONE of the live subtree. The clone has the same structure but no
+// runtime side-state (canvas pixels, audio playback position, etc.).
+//
+// micromorph compares structure/attributes only — so it sees the
+// pre-populated next slot as identical to the live one and emits NO
+// patches for that subtree. The live painted canvases never get
+// removed → no flicker.
+//
+// Matching priority: id, then data-pdf-src, then data-persist-key.
+// (Add more keys here when new persist-needing components show up.)
+function preservePersistedSubtrees(curRoot: HTMLElement, nextRoot: HTMLElement) {
+  const persisted = curRoot.querySelectorAll<HTMLElement>("[data-persist]")
+  for (const cur of Array.from(persisted)) {
+    if (cur.children.length === 0) continue
+    let match: Element | null = null
+    if (cur.id) {
+      try { match = nextRoot.querySelector(`#${CSS.escape(cur.id)}`) } catch {}
+    }
+    if (!match) {
+      const pdfSrc = cur.getAttribute("data-pdf-src")
+      if (pdfSrc) {
+        try { match = nextRoot.querySelector(`[data-pdf-src="${CSS.escape(pdfSrc)}"]`) } catch {}
+      }
+    }
+    if (!match) {
+      const key = cur.getAttribute("data-persist-key")
+      if (key) {
+        try { match = nextRoot.querySelector(`[data-persist-key="${CSS.escape(key)}"]`) } catch {}
+      }
+    }
+    if (!match || match.children.length > 0) continue
+    for (const child of Array.from(cur.children)) {
+      match.appendChild(child.cloneNode(true))
+    }
+  }
+}
+
 function preserveAiGlobalHost(nextBody: Document["body"]) {
   const currentPanel = document.querySelector<HTMLElement>(".assistant-panel[data-ai-global-host]")
   const incomingPanel = nextBody.querySelector<HTMLElement>(".assistant-panel")
@@ -193,7 +233,13 @@ async function _navigate(url: URL, isBack: boolean = false) {
   announcer.dataset.persist = ""
   html.body.appendChild(announcer)
 
-  // morph body
+  // morph body — but first hydrate any [data-persist] subtrees in the
+  // new HTML with cloned structure from the live DOM, so micromorph
+  // sees identical children at those positions and skips touching
+  // them. micromorph compares attributes/structure, not pixel data,
+  // so the cloned (blank) canvas matches the live (painted) canvas;
+  // the live one survives the morph untouched.
+  preservePersistedSubtrees(document.body, html.body)
   await micromorph(document.body, html.body)
 
   // scroll into place and add history
