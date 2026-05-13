@@ -82,8 +82,8 @@ ok(`source markdown updated (length delta=${fileAfter.length - original.length},
 
 // Verify in source: pick a robust marker phrase from each paragraph
 // that exists verbatim in source markdown (avoid backticks / smart quotes).
-const aMarker = "This page has"
-const bMarker = "Each gets the same toolbar"
+const aMarker = "Every page on this site renders"
+const bMarker = "A block layer adds a second axis"
 const aPosInFile = fileAfter.indexOf(aMarker)
 const bPosInFile = fileAfter.indexOf(bMarker)
 note(`source positions: A "${aMarker}"@${aPosInFile}, B "${bMarker}"@${bPosInFile}`)

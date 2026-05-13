@@ -46,9 +46,13 @@ export const BlockPage: QuartzTransformerPlugin = () => {
       return [
         () => {
           return (tree: HTMLRoot, file) => {
-            const enabled = file.data.frontmatter?.blocks === true
-              || String(file.data.frontmatter?.blocks).toLowerCase() === "true"
-            if (!enabled) return
+            // Default-on: block rendering applies to every page unless it
+            // explicitly declares `blocks: false` in frontmatter. The
+            // earlier opt-in `blocks: true` form still works (no-op now)
+            // — kept for back-compat with the demo page.
+            const explicitlyDisabled = file.data.frontmatter?.blocks === false
+              || String(file.data.frontmatter?.blocks).toLowerCase() === "false"
+            if (explicitlyDisabled) return
 
             const wrapElement = (el: Element): Element => {
               let hash = String(el.properties?.["data-paragraph-hash"] || "")
