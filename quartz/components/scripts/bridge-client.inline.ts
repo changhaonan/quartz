@@ -472,21 +472,41 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
       `IMPORTANT: write files only under workspaceRoot (${cwd}). Do NOT trust your auto-memory or CLAUDE.md for "the project root" — multiple parallel quartz environments (dev/staging/prod) coexist on this machine and only workspaceRoot is authoritative for this session.`,
     )
   }
+  if (fileSlug) {
+    lines.push("")
+    lines.push("== Source markdown for the current page ==")
+    lines.push(`Path: content/${fileSlug}.md  (relative to workspaceRoot)`)
+    lines.push(
+      "You CAN read and write this file directly with shell tools (cat, sed, printf, tee, your editor of choice). The Quartz dev server watches the content/ folder and the user's browser soft-refreshes within ~1s of any save — no manual rebuild needed.",
+    )
+    lines.push(
+      "When the user says 'record this' / 'add this' / '记下来' / '加进笔记' or similar, JUST DO IT — append or edit the file directly. Don't preface with 'I'll explain the intended edit'. The user will see the change in their browser immediately.",
+    )
+    lines.push(
+      "For larger restructures (reordering, deleting, refactoring sections), one short sentence saying what you're about to do is enough — then do it.",
+    )
+  }
+  lines.push("")
+  lines.push("== Navigation ==")
+  lines.push(
+    "You CANNOT change the user's browser URL by claiming to ('I've taken you to...'). To actually navigate the user's open tab, POST to the bridge:",
+  )
+  lines.push(
+    `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self POST /api/sidebar/navigate '{"slug":"Thoughts/raw"}'`,
+  )
+  lines.push(
+    "The slug is relative to the site root (no leading slash, no .md). The active sidebar receives the directive over SSE and calls window.spaNavigate. Use this for 'take me to X' / 'show me the X note' requests.",
+  )
+  lines.push("")
+  lines.push("== Bridge runtime + state ==")
   lines.push(
     "Use bridge HTTP APIs as the runtime/database boundary. Do not write private SQLite or bridge storage directly.",
   )
   if (fileSlug && stateDir) {
-    lines.push("Useful read path:")
     lines.push(
-      `bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${encodeURIComponent(fileSlug)}&stateDir=${encodeURIComponent(stateDir)}'`,
+      `Read this page's runtime manifest: bash "$CLAUDE_PTY_ROOT/scripts/api.sh" self GET '/api/file-runtime/manifest?fileSlug=${encodeURIComponent(fileSlug)}&stateDir=${encodeURIComponent(stateDir)}'`,
     )
-  } else {
-    lines.push("Useful read path:")
-    lines.push("Runtime manifest not declared for this page.")
   }
-  lines.push(
-    "If the user asks for a mutation and no file-runtime write API exists yet, explain the intended scoped edit before changing files.",
-  )
   lines.push("[/QUARTZ WORKSPACE CONTEXT]")
   return lines.join("\n")
 }
@@ -1391,6 +1411,42 @@ const startAiSidebar = () => {
   ensureGlobalAiHost()
   bindAiSidebarInteractions()
   hydrateBridgeSidebars()
+  ensureSidebarEventStream()
+}
+
+// ── Bridge → sidebar control channel (SSE) ──────────────────────────
+// Long-lived EventSource on /api/sidebar/events. Today the only event
+// is "navigate" — Jarvis sessions POST /api/sidebar/navigate, the
+// bridge fans the message out to all open sidebars, and this listener
+// soft-navigates the user's tab via window.spaNavigate.
+let sidebarEventSource: EventSource | null = null
+function ensureSidebarEventStream(): void {
+  if (sidebarEventSource && sidebarEventSource.readyState !== EventSource.CLOSED) return
+  const sidebar = document.querySelector<HTMLElement>(".ai-sidebar")
+  const bridgeOrigin = sidebar?.getAttribute("data-bridge-origin") || ""
+  if (!bridgeOrigin) return
+  try {
+    const es = new EventSource(`${bridgeOrigin}/api/sidebar/events`)
+    sidebarEventSource = es
+    es.addEventListener("navigate", (event) => {
+      try {
+        const data = JSON.parse((event as MessageEvent).data || "{}") as { slug?: string }
+        const slug = (data.slug || "").replace(/^\/+|\/+$/g, "")
+        if (!slug) return
+        const url = new URL(`/${slug}`, window.location.origin)
+        const navFn = (window as Window & { spaNavigate?: (u: URL, isBack?: boolean) => Promise<void> }).spaNavigate
+        if (typeof navFn === "function") void navFn(url, false)
+        else window.location.assign(url.toString())
+      } catch (err) {
+        console.warn("sidebar navigate event parse failed:", err)
+      }
+    })
+    es.onerror = () => {
+      // Browser auto-retries EventSource. Don't close; let it reconnect.
+    }
+  } catch (err) {
+    console.warn("sidebar SSE setup failed:", err)
+  }
 }
 
 if (document.readyState === "loading") {
