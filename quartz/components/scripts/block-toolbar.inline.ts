@@ -101,17 +101,26 @@ function bindBlockToolbars(): void {
         const bridgeOrigin = sidebar.getAttribute("data-bridge-origin") || ""
         if (!bridgeOrigin) { flashFeedback(target, "no bridge", true); return }
         const slug = sidebar.dataset.fileSlug || ""
+        // Detect PDF embed: when the block wraps a <figure data-pdf-src>,
+        // pass the pdf path to the bridge so it can extract the paper's
+        // actual text. Otherwise the bridge would only see the figcaption
+        // ("Open foo.pdf ↗") and produce a comment about the link, not
+        // the paper.
+        const pdfFigure = card.querySelector<HTMLElement>("figure.pdf-embed[data-pdf-src]")
+        const pdfSrc = pdfFigure?.getAttribute("data-pdf-src") || ""
         const innerEl = card.querySelector<HTMLElement>("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")
         const text = (innerEl?.textContent || "").replace(/\s+/g, " ").trim()
-        if (!text) { flashFeedback(target, "empty block", true); return }
+        if (!text && !pdfSrc) { flashFeedback(target, "empty block", true); return }
         target.disabled = true
         const originalLabel = target.textContent
         target.textContent = "…"
         try {
+          const para: { hash: string; text: string; pdfSrc?: string } = { hash: blockId, text: text || `[PDF: ${pdfSrc}]` }
+          if (pdfSrc) para.pdfSrc = pdfSrc
           const res = await fetch(`${bridgeOrigin}/api/ai-comments/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
-            body: JSON.stringify({ slug, paragraphs: [{ hash: blockId, text }] }),
+            body: JSON.stringify({ slug, paragraphs: [para] }),
           })
           const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; comments?: Array<{ hash: string; comment: string }> }
           if (!res.ok || !payload.ok) throw new Error(payload.error || `bridge ${res.status}`)

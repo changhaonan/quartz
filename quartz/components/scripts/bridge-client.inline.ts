@@ -514,6 +514,9 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   lines.push(
     "BLOCK STRUCTURE matters for the per-block toolbar (⧉/💬/★/↕). The block-page renderer wraps each TOP-LEVEL element (heading, paragraph, list, code, blockquote, table, figure) as its own block-card. So when you're grouping multiple items the user will want to comment on / reorder independently — multiple papers, multiple ideas, multiple steps — use H2 (or H3) per item with a paragraph + embed, NOT a numbered list with multi-line nested items. A numbered list collapses the entire <ol> into ONE block-card; the H2-per-item structure gives each item its own card. Concretely: `## 1. Paper Title\\n\\nDescription...\\n\\n![[papers/x.pdf]]\\n\\n## 2. Other Paper\\n\\n...` not `1. **Paper**\\n   description\\n   ![[papers/x.pdf]]\\n2. **Other**\\n   ...`.",
   )
+  lines.push(
+    "READING PDFS: you can extract plain text from any PDF under content/ via `bash \"$CLAUDE_PTY_ROOT/scripts/pdftotext.sh\" content/papers/<name>.pdf [--pages=20] [--chars=20000]`. The script uses the same pdfjs-dist pipeline the browser viewer uses (no poppler dep). Use this when the user asks you to read, summarise, or critique a paper they've embedded. The ★ Jarvis-here button on a PDF block already feeds extracted text to the comment endpoint — but when the user is asking conversationally in chat (\"what does this paper actually say about X?\"), run the script and read the output yourself before answering.",
+  )
   lines.push("")
   lines.push("== Bridge runtime + state ==")
   lines.push(
@@ -716,8 +719,8 @@ type AiCommentResponse = {
   comments?: Array<{ hash: string; comment: string }>
 }
 
-function collectPageParagraphs(): Array<{ hash: string; text: string }> {
-  const out: Array<{ hash: string; text: string }> = []
+function collectPageParagraphs(): Array<{ hash: string; text: string; pdfSrc?: string }> {
+  const out: Array<{ hash: string; text: string; pdfSrc?: string }> = []
   const seen = new Set<string>()
   // Prefer .block-card[data-block-id] (works on any wrapped element type
   // — paragraphs, lists, code, headings, blockquotes…). Fall back to
@@ -725,11 +728,18 @@ function collectPageParagraphs(): Array<{ hash: string; text: string }> {
   const cards = Array.from(document.querySelectorAll<HTMLElement>("article .block-card[data-block-id]"))
   for (const card of cards) {
     const hash = card.dataset.blockId || ""
+    // PDF figure → pass pdfSrc; the bridge extracts the paper's text
+    // server-side. Otherwise use the rendered text content.
+    const pdfFigure = card.querySelector<HTMLElement>("figure.pdf-embed[data-pdf-src]")
+    const pdfSrc = pdfFigure?.getAttribute("data-pdf-src") || ""
     const text = (card.querySelector("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")?.textContent || "")
       .replace(/\s+/g, " ").trim()
-    if (!hash || !text || seen.has(hash)) continue
+    if (!hash || seen.has(hash)) continue
+    if (!text && !pdfSrc) continue
     seen.add(hash)
-    out.push({ hash, text })
+    const entry: { hash: string; text: string; pdfSrc?: string } = { hash, text: text || `[PDF: ${pdfSrc}]` }
+    if (pdfSrc) entry.pdfSrc = pdfSrc
+    out.push(entry)
   }
   if (cards.length === 0) {
     for (const p of Array.from(document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"))) {
