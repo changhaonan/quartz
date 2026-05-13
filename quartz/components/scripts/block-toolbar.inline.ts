@@ -313,7 +313,27 @@ function bindBlockDragDelegation(): void {
     const originalOrder = allCards.slice()
     const parent = card.parentElement
     if (parent) {
-      for (const c of newOrder) parent.appendChild(c)
+      // AI-comment widgets mount as siblings AFTER their block-card
+      // (insertAdjacentElement("afterend", widget) — see bridge-client).
+      // The naive `for (const c of newOrder) parent.appendChild(c)`
+      // reparents only the cards, leaving the widgets stuck at their
+      // original DOM positions — they'd visually pop to the top of the
+      // article since the cards moved away from them. Pair each card
+      // with its trailing widgets BEFORE the loop so the pair travels
+      // as one unit.
+      const groups = newOrder.map((c) => {
+        const widgets: HTMLElement[] = []
+        let next = c.nextElementSibling
+        while (next && next instanceof HTMLElement && next.classList.contains("ai-comment-widget")) {
+          widgets.push(next)
+          next = next.nextElementSibling
+        }
+        return { card: c, widgets }
+      })
+      for (const { card: c, widgets } of groups) {
+        parent.appendChild(c)
+        for (const w of widgets) parent.appendChild(w)
+      }
     }
     const blockOrder = newOrder.map((c) => {
       const innerEl = c.querySelector<HTMLElement>("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")
