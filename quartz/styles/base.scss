@@ -670,6 +670,86 @@ figure.pdf-embed {
     }
   }
 
+  // Per-page synthetic block-cards inserted by the runtime. The card
+  // is a flex row: canvas on the left, annotation column on the right.
+  // Hover surfaces the toolbar via the existing .block-card hover styles.
+  .block-card.block-card--pdf-page {
+    margin-bottom: 0.6em;
+    position: relative;
+    &:last-child { margin-bottom: 0; }
+
+    .pdf-viewer__page-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.8em;
+    }
+    .pdf-viewer__page {
+      flex: 1 1 auto;
+      min-width: 0;  // critical: lets canvas shrink instead of pushing the column off
+      margin-bottom: 0;
+    }
+    .block-card__annotations {
+      flex: 0 0 300px;
+      min-height: 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4em;
+    }
+    .block-card__annotations-empty {
+      font-size: 0.78em;
+      color: var(--gray);
+      font-style: italic;
+      padding: 0.6em 0.8em;
+      background: var(--light);
+      border: 1px dashed var(--lightgray);
+      border-radius: 4px;
+      text-align: center;
+      opacity: 0.65;
+    }
+    // Comment widget that mounts inside the slot — drop the
+    // sibling-after spacing it normally has.
+    .block-card__annotations .ai-comment-widget {
+      margin: 0;
+    }
+  }
+
+  // Collapsed mode: hide all but the first per-page card. Annotations
+  // persist in localStorage so re-expanding restores them.
+  &[data-pdf-mode="collapsed"] {
+    .block-card--pdf-page:not(:nth-of-type(1)) {
+      display: none;
+    }
+  }
+
+  // Expand/collapse toggle on the figcaption.
+  .pdf-embed__mode-toggle {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--lightgray);
+    color: var(--gray);
+    font-size: 0.78em;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 0.6em;
+    &:hover {
+      border-color: var(--secondary);
+      color: var(--secondary);
+    }
+  }
+
+  // Narrow viewports: stack canvas above annotation column (the
+  // 300px gutter would crush the canvas on phone widths).
+  @media (max-width: 800px) {
+    .block-card.block-card--pdf-page .pdf-viewer__page-row {
+      flex-direction: column;
+    }
+    .block-card.block-card--pdf-page .block-card__annotations {
+      flex: 0 0 auto;
+      width: 100%;
+    }
+  }
+
   .pdf-viewer__status {
     padding: 1.5em;
     text-align: center;

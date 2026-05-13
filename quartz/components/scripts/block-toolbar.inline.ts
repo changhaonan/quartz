@@ -105,9 +105,15 @@ function bindBlockToolbars(): void {
         // pass the pdf path to the bridge so it can extract the paper's
         // actual text. Otherwise the bridge would only see the figcaption
         // ("Open foo.pdf ↗") and produce a comment about the link, not
-        // the paper.
+        // the paper. Per-page synthetic cards (block-card--pdf-page)
+        // carry data-pdf-src + data-pdf-page directly on the card; we
+        // forward pageNumber so the bridge extracts that page only.
+        const isPerPage = card.classList.contains("block-card--pdf-page")
         const pdfFigure = card.querySelector<HTMLElement>("figure.pdf-embed[data-pdf-src]")
-        const pdfSrc = pdfFigure?.getAttribute("data-pdf-src") || ""
+        const pdfSrc = isPerPage
+          ? (card.getAttribute("data-pdf-src") || "")
+          : (pdfFigure?.getAttribute("data-pdf-src") || "")
+        const pageNumber = isPerPage ? Number(card.getAttribute("data-pdf-page") || "0") : 0
         const innerEl = card.querySelector<HTMLElement>("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")
         const text = (innerEl?.textContent || "").replace(/\s+/g, " ").trim()
         if (!text && !pdfSrc) { flashFeedback(target, "empty block", true); return }
@@ -115,8 +121,12 @@ function bindBlockToolbars(): void {
         const originalLabel = target.textContent
         target.textContent = "…"
         try {
-          const para: { hash: string; text: string; pdfSrc?: string } = { hash: blockId, text: text || `[PDF: ${pdfSrc}]` }
+          const para: { hash: string; text: string; pdfSrc?: string; pageNumber?: number } = {
+            hash: blockId,
+            text: text || (pageNumber > 0 ? `[PDF page ${pageNumber}: ${pdfSrc}]` : `[PDF: ${pdfSrc}]`),
+          }
           if (pdfSrc) para.pdfSrc = pdfSrc
+          if (pageNumber > 0) para.pageNumber = pageNumber
           const res = await fetch(`${bridgeOrigin}/api/ai-comments/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
@@ -353,6 +363,9 @@ function flashFeedback(btn: HTMLButtonElement, msg: string, isError = false): vo
 }
 
 document.addEventListener("nav", bindBlockToolbars)
+// pdf-viewer (and any future runtime) creates new .block-card nodes
+// after spa nav has already fired; this hook lets them re-bind.
+document.addEventListener("quartz:blocks-added", bindBlockToolbars)
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bindBlockToolbars, { once: true })
 } else {

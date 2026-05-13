@@ -14,6 +14,21 @@
 //
 // Pages render lazily via IntersectionObserver so a 50-page paper
 // doesn't peg the main thread on first load.
+//
+// PER-PAGE BLOCKS: each .pdf-viewer__page is wrapped at runtime in
+// a synthetic .block-card.block-card--pdf-page so the existing
+// block-toolbar (⧉/💬/★) and ai-comment widget runtime treat each
+// page as its own commentable block. data-block-id is derived from
+// sha1(pdfSrc + "::p" + pageNum) so it survives reorders, page
+// reloads, and re-mounts. The per-page card has a side annotation
+// column (.block-card__annotations) so comments render to the right
+// of the canvas instead of stacking below.
+//
+// EXPAND MODE: default is "expanded" — every page is wrapped + lazy
+// rendered. The figure also gets a toggle so the user can collapse
+// to page-1-only when scrolling past long papers; per-page
+// annotations live in localStorage either way and reappear on
+// re-expand.
 
 import * as pdfjsLib from "pdfjs-dist"
 
@@ -43,6 +58,36 @@ function resolveWorkerUrl(): string {
 function resolveContentUrl(relPath: string): string {
   if (/^https?:\/\//i.test(relPath)) return relPath
   return siteRootUrl() + relPath.replace(/^\/+/, "")
+}
+
+// Stable block-id per (pdfSrc, pageNum). Mirrors the build-time
+// hashText in plugins/transformers/blockPage.ts (sha-256, take 12
+// hex chars) so the per-page id space doesn't collide with the
+// figure-level id and is stable across reloads.
+async function pageBlockId(pdfSrc: string, pageNum: number): Promise<string> {
+  const enc = new TextEncoder().encode(`${pdfSrc}::p${pageNum}`)
+  // SubtleCrypto is available in all browsers we target; fall back
+  // to a non-crypto fold if it ever isn't (loaded over file://, etc.)
+  if (window.crypto?.subtle) {
+    const buf = await window.crypto.subtle.digest("SHA-256", enc)
+    const bytes = new Uint8Array(buf).slice(0, 6)
+    return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")
+  }
+  // Cheap fallback: djb2 of the same string.
+  let h = 5381
+  for (const c of `${pdfSrc}::p${pageNum}`) h = ((h << 5) + h + c.charCodeAt(0)) | 0
+  return (h >>> 0).toString(16).padStart(12, "0").slice(0, 12)
+}
+
+function makeToolbarBtn(action: string, title: string, label: string): HTMLButtonElement {
+  const b = document.createElement("button")
+  b.type = "button"
+  b.className = "block-card__btn"
+  b.setAttribute("data-block-action", action)
+  b.title = title
+  b.setAttribute("aria-label", title)
+  b.textContent = label
+  return b
 }
 
 let workerConfigured = false
@@ -109,15 +154,54 @@ async function mountViewer(host: HTMLElement, src: string): Promise<void> {
     // any canvas is drawn).
     const firstPage = await pdf.getPage(1)
     const firstViewport = firstPage.getViewport({ scale: 1 })
-    const aspectRatio = firstViewport.height / firstViewport.width
+
+    // Default mode = expanded; the figure can flip data-pdf-mode to
+    // "collapsed" via the toggle button to hide all but page 1.
+    const figure = host.closest<HTMLElement>("figure.pdf-embed")
+    if (figure && !figure.dataset.pdfMode) figure.dataset.pdfMode = "expanded"
 
     for (let p = 1; p <= pdf.numPages; p++) {
+      // Synthetic block-card per page so the existing toolbar +
+      // ai-comment runtime treat each page as its own block.
+      const card = document.createElement("div")
+      const blockId = await pageBlockId(src, p)
+      card.id = `block-pdf-${blockId}`
+      card.className = "block-card block-card--pdf-page"
+      card.setAttribute("data-block-id", blockId)
+      card.setAttribute("data-pdf-src", src)
+      card.setAttribute("data-pdf-page", String(p))
+
+      const row = document.createElement("div")
+      row.className = "pdf-viewer__page-row"
+
       const pageHost = document.createElement("div")
       pageHost.className = "pdf-viewer__page"
       pageHost.setAttribute("data-page-num", String(p))
       pageHost.style.aspectRatio = `${firstViewport.width} / ${firstViewport.height}`
-      void aspectRatio  // referenced; kept for clarity
-      host.appendChild(pageHost)
+
+      const slot = document.createElement("div")
+      slot.className = "block-card__annotations"
+      // Empty-state hint so users see the column exists before
+      // they've added any comment. Cleared once the ai-comment
+      // widget mounts content into the slot.
+      const empty = document.createElement("div")
+      empty.className = "block-card__annotations-empty"
+      empty.textContent = "★ to ask Jarvis · 💬 to add your own note on this page"
+      slot.appendChild(empty)
+
+      row.appendChild(pageHost)
+      row.appendChild(slot)
+      card.appendChild(row)
+
+      const toolbar = document.createElement("div")
+      toolbar.className = "block-card__toolbar"
+      toolbar.setAttribute("aria-hidden", "true")
+      toolbar.appendChild(makeToolbarBtn("copy", "Copy this page's text", "⧉"))
+      toolbar.appendChild(makeToolbarBtn("comment", "Add a note on this page", "💬"))
+      toolbar.appendChild(makeToolbarBtn("jarvis-here", "Ask Jarvis to comment on this page", "★"))
+      card.appendChild(toolbar)
+
+      host.appendChild(card)
     }
 
     const observer = new IntersectionObserver(
@@ -133,7 +217,40 @@ async function mountViewer(host: HTMLElement, src: string): Promise<void> {
       { root: null, rootMargin: "400px 0px", threshold: 0.01 },
     )
     host.querySelectorAll<HTMLElement>(".pdf-viewer__page").forEach((p) => observer.observe(p))
+
+    // Add the expand/collapse toggle on the figcaption (or just
+    // before, if no figcaption). Idempotent: only one toggle per
+    // figure, regardless of re-mounts.
+    if (figure && !figure.querySelector(".pdf-embed__mode-toggle")) {
+      const toggle = document.createElement("button")
+      toggle.type = "button"
+      toggle.className = "pdf-embed__mode-toggle"
+      toggle.setAttribute("aria-label", "Toggle PDF expand mode")
+      const refresh = () => {
+        const mode = figure.dataset.pdfMode === "collapsed" ? "collapsed" : "expanded"
+        toggle.textContent = mode === "expanded" ? "Collapse pages" : "Expand all pages"
+      }
+      refresh()
+      toggle.addEventListener("click", () => {
+        figure.dataset.pdfMode = figure.dataset.pdfMode === "collapsed" ? "expanded" : "collapsed"
+        refresh()
+        // Re-attach the IntersectionObserver to newly visible pages
+        // — collapsed→expanded reveals pages 2+ that were display:none.
+        host.querySelectorAll<HTMLElement>(".pdf-viewer__page").forEach((p) => observer.observe(p))
+      })
+      const cap = figure.querySelector(".pdf-embed__caption")
+      if (cap) cap.insertAdjacentElement("afterbegin", toggle)
+      else figure.appendChild(toggle)
+    }
+
     mounted.set(host, { src, pdf, observer })
+
+    // Tell the rest of the system that new .block-card nodes have
+    // appeared so block-toolbar (click handlers) and the widget
+    // runtime (cached annotations re-mount) can pick them up. Both
+    // listen for `nav` already; this custom event is the runtime
+    // analogue for cards that didn't exist at SPA-nav time.
+    ;(document.dispatchEvent as (e: Event) => boolean)(new CustomEvent("quartz:blocks-added"))
   } catch (err) {
     host.replaceChildren()
     const errEl = document.createElement("div")
@@ -172,7 +289,10 @@ async function renderPage(pdf: PdfDoc, pageHost: HTMLElement): Promise<void> {
       pageHost.dataset.rendered = ""
       return
     }
-    await page.render({ canvasContext: ctx, viewport }).promise
+    // pdfjs-dist's RenderParameters added a required `canvas` field
+    // alongside `canvasContext` in newer versions; pass both for
+    // forward compatibility.
+    await page.render({ canvas, canvasContext: ctx, viewport } as Parameters<typeof page.render>[0]).promise
     pageHost.replaceChildren(canvas)
     pageHost.dataset.rendered = "1"
     pageHost.removeAttribute("style")  // drop the aspect-ratio placeholder; canvas drives the size now

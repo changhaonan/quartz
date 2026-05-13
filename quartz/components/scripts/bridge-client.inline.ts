@@ -725,8 +725,14 @@ function collectPageParagraphs(): Array<{ hash: string; text: string; pdfSrc?: s
   // Prefer .block-card[data-block-id] (works on any wrapped element type
   // — paragraphs, lists, code, headings, blockquotes…). Fall back to
   // bare <p data-paragraph-hash> on pages that don't opt into blocks.
+  // Whole-page Jarvis Read uses the OUTER (figure-level) PDF block,
+  // not the per-page synthetic cards inserted by pdf-viewer runtime
+  // — otherwise a 30-page paper expands into 30 LLM calls. The
+  // per-page ★ button is the way to get per-page comments. So we
+  // explicitly skip .block-card--pdf-page below.
   const cards = Array.from(document.querySelectorAll<HTMLElement>("article .block-card[data-block-id]"))
   for (const card of cards) {
+    if (card.classList.contains("block-card--pdf-page")) continue
     const hash = card.dataset.blockId || ""
     // PDF figure → pass pdfSrc; the bridge extracts the paper's text
     // server-side. Otherwise use the rendered text content.
@@ -1236,12 +1242,32 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         return
       }
     })
-    node.insertAdjacentElement("afterend", widget)
+    // Per-page PDF cards (and any future block kind) can opt into a
+    // side-column annotation layout by including an empty
+    // .block-card__annotations slot. When present, the widget mounts
+    // INTO that slot instead of as a sibling, so CSS can lay it out
+    // beside the page canvas. The empty-state hint inside the slot
+    // is cleared on first mount.
+    const annotationSlot = node.querySelector<HTMLElement>(":scope > .pdf-viewer__page-row > .block-card__annotations, :scope > .block-card__annotations")
+    if (annotationSlot) {
+      annotationSlot.querySelector(".block-card__annotations-empty")?.remove()
+      annotationSlot.appendChild(widget)
+    } else {
+      node.insertAdjacentElement("afterend", widget)
+    }
 
     // Cleanup runs before re-mount (e.g., next attachAll after state change).
     return () => {
       widget.remove()
       delete node.dataset.aiCommentAttached
+      // If the annotation slot is now empty, reinstate the hint so
+      // the empty-state column doesn't go silent + visually confusing.
+      if (annotationSlot && annotationSlot.children.length === 0) {
+        const empty = document.createElement("div")
+        empty.className = "block-card__annotations-empty"
+        empty.textContent = "★ to ask Jarvis · 💬 to add your own note on this page"
+        annotationSlot.appendChild(empty)
+      }
     }
   },
 }
@@ -1439,6 +1465,13 @@ document.addEventListener("nav", () => {
   ensureGlobalAiHost()
   bindAiSidebarInteractions()
   hydrateBridgeSidebars()
+  getBlockWidgetRuntime().attachAll()
+})
+
+// Per-page PDF cards (and any future runtime-added blocks) appear
+// after `nav` has fired; this hook lets the widget runtime mount
+// any persisted annotations into them.
+document.addEventListener("quartz:blocks-added", () => {
   getBlockWidgetRuntime().attachAll()
 })
 
