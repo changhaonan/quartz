@@ -511,6 +511,9 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
   lines.push(
     "DO NOT inline-base64-encode files into markdown, paste binary data, or set up your own <iframe>/<embed> tags — the wikilink form is what the Quartz transformer recognises and what the canvas viewer hooks into. DO NOT save files outside content/ (won't be served); use `papers/`, `images/`, `attachments/` etc. as subfolder conventions.",
   )
+  lines.push(
+    "BLOCK STRUCTURE matters for the per-block toolbar (⧉/💬/★/↕). The block-page renderer wraps each TOP-LEVEL element (heading, paragraph, list, code, blockquote, table, figure) as its own block-card. So when you're grouping multiple items the user will want to comment on / reorder independently — multiple papers, multiple ideas, multiple steps — use H2 (or H3) per item with a paragraph + embed, NOT a numbered list with multi-line nested items. A numbered list collapses the entire <ol> into ONE block-card; the H2-per-item structure gives each item its own card. Concretely: `## 1. Paper Title\\n\\nDescription...\\n\\n![[papers/x.pdf]]\\n\\n## 2. Other Paper\\n\\n...` not `1. **Paper**\\n   description\\n   ![[papers/x.pdf]]\\n2. **Other**\\n   ...`.",
+  )
   lines.push("")
   lines.push("== Bridge runtime + state ==")
   lines.push(
