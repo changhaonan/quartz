@@ -1275,6 +1275,99 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
 // Register the AI comment widget once at module load.
 getBlockWidgetRuntime().register(AI_COMMENT_WIDGET)
 
+// ── Server-side widget-state sidecar sync ──
+// Make content/.jarvis/widget-state.json the durable source of
+// truth for AI comments + threads. localStorage stays as a hot
+// cache (cross-tab, fast); the bridge is canonical and survives
+// browser data clears + multi-device.
+//
+// Flow:
+//  - On startup we GET the bridge's snapshot. If non-empty, we
+//    replaceAll() in the runtime (also rewrites localStorage).
+//  - For every set/delete on the runtime, we batch the (key, value)
+//    into a pending patch and POST it after a short debounce so
+//    rapid edits coalesce. Failed POSTs are dropped silently —
+//    localStorage is the fallback so the user never loses data
+//    mid-session even if the bridge is down.
+;(function setupWidgetStateSync() {
+  const findOrigin = (): string => {
+    const sidebar = document.querySelector<HTMLElement>(".ai-sidebar")
+    return sidebar?.getAttribute("data-bridge-origin") || ""
+  }
+  const runtime = getBlockWidgetRuntime()
+
+  let hydrated = false
+  async function hydrateFromBridge(): Promise<void> {
+    if (hydrated) return
+    const origin = findOrigin()
+    if (!origin) return  // sidebar not yet in DOM; try again on next hydrate trigger
+    try {
+      const res = await fetch(`${origin}/api/widget-state`, { headers: { "X-Role-Id": "admin" } })
+      if (!res.ok) return
+      const payload = (await res.json().catch(() => null)) as { ok?: boolean; state?: Record<string, unknown> } | null
+      if (!payload?.ok || !payload.state) return
+      hydrated = true  // only mark hydrated on a successful response
+      const remoteKeys = Object.keys(payload.state)
+      if (remoteKeys.length === 0) return  // bridge has nothing — keep localStorage
+      runtime.replaceAll(payload.state)
+      runtime.attachAll()
+    } catch {
+      // bridge unreachable — silently fall back to localStorage
+    }
+  }
+
+  // Patch buffer + debounced flush.
+  const upserts = new Map<string, unknown>()
+  const deletes = new Set<string>()
+  let flushTimer: number | null = null
+  const FLUSH_MS = 350
+  function scheduleFlush() {
+    if (flushTimer != null) return
+    flushTimer = window.setTimeout(flush, FLUSH_MS)
+  }
+  async function flush() {
+    flushTimer = null
+    const origin = findOrigin()
+    if (!origin) return
+    if (upserts.size === 0 && deletes.size === 0) return
+    const body: { upserts: Record<string, unknown>; deletes: string[] } = { upserts: {}, deletes: [] }
+    for (const [k, v] of upserts) body.upserts[k] = v
+    for (const k of deletes) body.deletes.push(k)
+    upserts.clear()
+    deletes.clear()
+    try {
+      await fetch(`${origin}/api/widget-state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
+        body: JSON.stringify(body),
+      })
+    } catch {
+      // dropped — localStorage already has the change
+    }
+  }
+
+  runtime.onMutation((change) => {
+    if (change.kind === "set") {
+      deletes.delete(change.key)
+      upserts.set(change.key, change.state)
+      scheduleFlush()
+    } else if (change.kind === "delete") {
+      upserts.delete(change.key)
+      deletes.add(change.key)
+      scheduleFlush()
+    }
+    // replaceAll is the result of OUR own hydrate — no need to
+    // POST it back, that would be a write loop.
+  })
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", hydrateFromBridge, { once: true })
+  } else {
+    void hydrateFromBridge()
+  }
+  document.addEventListener("nav", () => { void hydrateFromBridge() })
+})()
+
 async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
   const bridgeOrigin = findBridgeOrigin(sidebar)
   if (!bridgeOrigin) {

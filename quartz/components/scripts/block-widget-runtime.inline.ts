@@ -49,6 +49,11 @@ export interface BlockWidget<TState> {
 
 type WidgetState = unknown
 type InstanceKey = string  // `${type}::${blockId}`
+
+export type WidgetMutation =
+  | { kind: "set"; key: InstanceKey; state: WidgetState }
+  | { kind: "delete"; key: InstanceKey }
+  | { kind: "replaceAll" }
 type PageStore = Map<InstanceKey, WidgetState>
 
 // localStorage key for the entire serialized widget store. We persist
@@ -133,8 +138,10 @@ class BlockWidgetRuntime {
 
   /** Seed (or replace) state for a specific widget instance. */
   set<TState>(type: string, blockId: string, state: TState): void {
-    this.store.set(this.instanceKey(type, blockId), state)
+    const key = this.instanceKey(type, blockId)
+    this.store.set(key, state)
     this.persistToStorage()
+    this.notifyMutation({ kind: "set", key, state })
   }
 
   /** Read current state (or undefined if none). */
@@ -152,6 +159,38 @@ class BlockWidgetRuntime {
       this.cleanups.delete(key)
     }
     this.persistToStorage()
+    this.notifyMutation({ kind: "delete", key })
+  }
+
+  // ── Mutation observers + bulk replace ──
+  // The bridge-client uses these to keep an on-disk sidecar
+  // (content/.jarvis/widget-state.json) in sync with the in-memory
+  // store. Kept in this file so the runtime stays bridge-agnostic;
+  // the observer is just a generic hook.
+  private mutationListeners = new Set<(change: WidgetMutation) => void>()
+  /** Register a callback that fires after every set / delete /
+   *  replaceAll. Returns an unsubscribe fn. */
+  onMutation(cb: (change: WidgetMutation) => void): () => void {
+    this.mutationListeners.add(cb)
+    return () => { this.mutationListeners.delete(cb) }
+  }
+  private notifyMutation(change: WidgetMutation): void {
+    for (const cb of this.mutationListeners) {
+      try { cb(change) } catch {}
+    }
+  }
+  /** Replace the entire store with a server-supplied snapshot.
+   *  Used on page load when the bridge has fresher state than
+   *  localStorage (or when localStorage is empty). Does NOT fire
+   *  per-key mutation events — listeners that just want to
+   *  re-mount can use attachAll() after this returns. */
+  replaceAll(map: Record<string, unknown>): void {
+    this.store.clear()
+    for (const [k, v] of Object.entries(map || {})) {
+      if (typeof k === "string" && k.includes("::")) this.store.set(k, v as WidgetState)
+    }
+    this.persistToStorage()
+    this.notifyMutation({ kind: "replaceAll" })
   }
 
   /** Walk every registered widget against the current DOM, (re-)mounting
@@ -280,6 +319,13 @@ class BlockWidgetRuntime {
 
 let singleton: BlockWidgetRuntime | null = null
 export function getBlockWidgetRuntime(): BlockWidgetRuntime {
-  if (!singleton) singleton = new BlockWidgetRuntime()
+  if (!singleton) {
+    singleton = new BlockWidgetRuntime()
+    // Expose for headless tests (and dev-time poking via devtools).
+    // Production cost is one property assignment; surface area is
+    // intentional — anyone debugging widget state should be able to
+    // reach the runtime directly.
+    try { (window as unknown as { __blockWidgetRuntime?: BlockWidgetRuntime }).__blockWidgetRuntime = singleton } catch {}
+  }
   return singleton
 }
