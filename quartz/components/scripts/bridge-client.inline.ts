@@ -1235,9 +1235,19 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       }
 
       if (action === "like") {
+        // Surgical visual update — re-rendering all peers via
+        // renderAllPeers() destroys the clicked button mid-click,
+        // which moves focus and the browser scroll-anchors to the
+        // new focus target → the whole page jumps. Just toggle the
+        // class + a11y labels on the clicked button + its peer
+        // card, persist async.
         if (likedIndexes.has(peerIndex)) likedIndexes.delete(peerIndex)
         else likedIndexes.add(peerIndex)
-        renderAllPeers()
+        const liked = likedIndexes.has(peerIndex)
+        target.classList.toggle("ai-comment-peer__icon-button--liked", liked)
+        target.setAttribute("aria-label", liked ? "Unlike" : "Like")
+        target.setAttribute("title", liked ? "Unlike" : "Like")
+        if (peerEl) peerEl.classList.toggle("ai-comment-peer--liked", liked)
         persistInPlace()
         return
       }
