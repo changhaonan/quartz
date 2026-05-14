@@ -7,7 +7,16 @@ import fs from "node:fs"
 
 const BASE = process.env.BASE || "http://127.0.0.1:8090"
 const PAGE = process.env.PAGE || "/Thoughts/recent/2026-05-11"
-const SIDECAR = "/Users/haonanchang/Projects/quartz_pty/content/.jarvis/widget-state.json"
+// Derive content sidecar path from BASE so dev/staging/prod
+// (different sibling content roots) all check the right file.
+const ENV_TO_ROOT = {
+  "8090": "/Users/haonanchang/Projects/quartz_pty/content",
+  "8081": "/Users/haonanchang/Projects/quartz_pty_staging/content",
+  "8080": "/Users/haonanchang/Projects/quartz_pty_prod/content",
+}
+const port = (new URL(BASE)).port
+const root = process.env.SIDECAR_ROOT || ENV_TO_ROOT[port] || ENV_TO_ROOT["8090"]
+const SIDECAR = `${root}/.jarvis/widget-state.json`
 
 const fail = (m) => { console.error("✗", m); process.exit(1) }
 const ok = (m) => console.log("✓", m)
