@@ -252,28 +252,69 @@ function bindBlockDragDelegation(): void {
     dragSrcCard = null
   })
 
+  // Resolve the block-card the drag is currently HOVERING over. Three
+  // sources, in order: a direct hit on a draggable block-card; a hit
+  // on the .ai-comment-widget aside that follows a card (count it as
+  // hovering the card so the drop region includes the widget); a
+  // descendant of a card.
+  function findHoveredCard(target: EventTarget | null): HTMLElement | null {
+    const direct = findBlockCard(target)
+    if (direct) return direct
+    if (target instanceof HTMLElement) {
+      const aside = target.closest<HTMLElement>("aside.ai-comment-widget")
+      if (aside) {
+        let prev = aside.previousElementSibling
+        while (prev && prev instanceof HTMLElement && prev.classList.contains("ai-comment-widget")) {
+          prev = prev.previousElementSibling
+        }
+        if (prev && prev instanceof HTMLElement && prev.matches(".block-card[data-block-id][draggable='true']")) {
+          return prev
+        }
+      }
+    }
+    return null
+  }
+
+  // Bottom of the (card + trailing widgets) group, in viewport coords.
+  // Used so the "after" drop indicator sits below the comment, not in
+  // the gap between the card and its comment.
+  function groupBottom(card: HTMLElement): number {
+    let bottom = card.getBoundingClientRect().bottom
+    let next = card.nextElementSibling
+    while (next && next instanceof HTMLElement && next.classList.contains("ai-comment-widget")) {
+      bottom = next.getBoundingClientRect().bottom
+      next = next.nextElementSibling
+    }
+    return bottom
+  }
+
   document.addEventListener("dragover", (event) => {
-    const card = findBlockCard(event.target)
+    const card = findHoveredCard(event.target)
     if (!card || !dragSrcCard || dragSrcCard === card) return
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
     const rect = card.getBoundingClientRect()
-    const insertBefore = event.clientY < rect.top + rect.height / 2
+    const bottom = groupBottom(card)
+    // Use the GROUP midpoint (card.top + groupHeight/2) as the
+    // before/after pivot so hovering anywhere over the comment
+    // unambiguously means "drop after this card".
+    const groupMid = rect.top + (bottom - rect.top) / 2
+    const insertBefore = event.clientY < groupMid
     const indicator = ensureDropIndicator()
     indicator.style.display = "block"
     indicator.style.left = `${rect.left}px`
     indicator.style.width = `${rect.width}px`
-    indicator.style.top = `${(insertBefore ? rect.top : rect.bottom) - 1 + window.scrollY}px`
+    indicator.style.top = `${(insertBefore ? rect.top : bottom) - 1 + window.scrollY}px`
     card.dataset.dropPosition = insertBefore ? "before" : "after"
   })
 
   document.addEventListener("dragleave", (event) => {
-    const card = findBlockCard(event.target)
+    const card = findHoveredCard(event.target)
     if (card) delete card.dataset.dropPosition
   })
 
   document.addEventListener("drop", async (event) => {
-    const card = findBlockCard(event.target)
+    const card = findHoveredCard(event.target)
     if (!card) return
     event.preventDefault()
     hideDropIndicator()
