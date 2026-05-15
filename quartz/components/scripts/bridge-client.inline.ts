@@ -506,7 +506,7 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
     "Supported embed types: .pdf (rendered with a canvas-based pdf.js viewer — multi-page scroll, no flicker on reorder, gets the standard ⧉/💬/★/↕ block toolbar like text blocks); .png/.jpg/.jpeg/.gif/.bmp/.svg/.webp (native <img>); .mp4/.webm/.ogv/.mov/.mkv (native <video>); .mp3/.wav/.m4a/.ogg/.flac (native <audio>). The site config is at quartz_pty/quartz/plugins/transformers/ofm.ts if the user needs a new type.",
   )
   lines.push(
-    "Typical paper workflow when the user shares an arXiv link or a PDF URL: (1) curl -sSL <pdf-url> -o content/papers/<kebab-slug>.pdf — pick a short kebab-case slug from the paper title, e.g. distilling-knowledge.pdf. (2) Create or open content/papers/<slug>.md with a `# Title` heading, a one-line link to the arXiv abs page, the `![[papers/<slug>.pdf]]` embed, and any prompts the user wants Jarvis to pre-load. (3) POST /api/sidebar/navigate {\"slug\":\"papers/<slug>\"} so the browser opens straight to the new note. The viewer block-card supports drag-reorder, copy, comment, and \"★ Jarvis-here\" (per-block AI comment).",
+    'Typical paper workflow when the user shares an arXiv link or a PDF URL: (1) curl -sSL <pdf-url> -o content/papers/<kebab-slug>.pdf — pick a short kebab-case slug from the paper title, e.g. distilling-knowledge.pdf. (2) Create or open content/papers/<slug>.md with a `# Title` heading, a one-line link to the arXiv abs page, the `![[papers/<slug>.pdf]]` embed, and any prompts the user wants Jarvis to pre-load. (3) POST /api/sidebar/navigate {"slug":"papers/<slug>"} so the browser opens straight to the new note. The viewer block-card supports drag-reorder, copy, comment, and "★ Jarvis-here" (per-block AI comment).',
   )
   lines.push(
     "DO NOT inline-base64-encode files into markdown, paste binary data, or set up your own <iframe>/<embed> tags — the wikilink form is what the Quartz transformer recognises and what the canvas viewer hooks into. DO NOT save files outside content/ (won't be served); use `papers/`, `images/`, `attachments/` etc. as subfolder conventions.",
@@ -515,7 +515,7 @@ function buildWorkspaceContext(sidebar: HTMLElement): string {
     "BLOCK STRUCTURE matters for the per-block toolbar (⧉/💬/★/↕). The block-page renderer wraps each TOP-LEVEL element (heading, paragraph, list, code, blockquote, table, figure) as its own block-card. So when you're grouping multiple items the user will want to comment on / reorder independently — multiple papers, multiple ideas, multiple steps — use H2 (or H3) per item with a paragraph + embed, NOT a numbered list with multi-line nested items. A numbered list collapses the entire <ol> into ONE block-card; the H2-per-item structure gives each item its own card. Concretely: `## 1. Paper Title\\n\\nDescription...\\n\\n![[papers/x.pdf]]\\n\\n## 2. Other Paper\\n\\n...` not `1. **Paper**\\n   description\\n   ![[papers/x.pdf]]\\n2. **Other**\\n   ...`.",
   )
   lines.push(
-    "READING PDFS: you can extract plain text from any PDF under content/ via `bash \"$CLAUDE_PTY_ROOT/scripts/pdftotext.sh\" content/papers/<name>.pdf [--pages=20] [--chars=20000]`. The script uses the same pdfjs-dist pipeline the browser viewer uses (no poppler dep). Use this when the user asks you to read, summarise, or critique a paper they've embedded. The ★ Jarvis-here button on a PDF block already feeds extracted text to the comment endpoint — but when the user is asking conversationally in chat (\"what does this paper actually say about X?\"), run the script and read the output yourself before answering.",
+    'READING PDFS: you can extract plain text from any PDF under content/ via `bash "$CLAUDE_PTY_ROOT/scripts/pdftotext.sh" content/papers/<name>.pdf [--pages=20] [--chars=20000]`. The script uses the same pdfjs-dist pipeline the browser viewer uses (no poppler dep). Use this when the user asks you to read, summarise, or critique a paper they\'ve embedded. The ★ Jarvis-here button on a PDF block already feeds extracted text to the comment endpoint — but when the user is asking conversationally in chat ("what does this paper actually say about X?"), run the script and read the output yourself before answering.',
   )
   lines.push("")
   lines.push("== Bridge runtime + state ==")
@@ -719,36 +719,70 @@ type AiCommentResponse = {
   comments?: Array<{ hash: string; comment: string }>
 }
 
-function collectPageParagraphs(): Array<{ hash: string; text: string; pdfSrc?: string }> {
-  const out: Array<{ hash: string; text: string; pdfSrc?: string }> = []
+function collectPageParagraphs(): Array<{
+  hash: string
+  text: string
+  pdfSrc?: string
+  pageNumber?: number
+}> {
+  const out: Array<{ hash: string; text: string; pdfSrc?: string; pageNumber?: number }> = []
   const seen = new Set<string>()
-  // Prefer .block-card[data-block-id] (works on any wrapped element type
-  // — paragraphs, lists, code, headings, blockquotes…). Fall back to
-  // bare <p data-paragraph-hash> on pages that don't opt into blocks.
-  // Whole-page Jarvis Read uses the OUTER (figure-level) PDF block,
-  // not the per-page synthetic cards inserted by pdf-viewer runtime
-  // — otherwise a 30-page paper expands into 30 LLM calls. The
-  // per-page ★ button is the way to get per-page comments. So we
-  // explicitly skip .block-card--pdf-page below.
-  const cards = Array.from(document.querySelectorAll<HTMLElement>("article .block-card[data-block-id]"))
+  const pdfPagesBySrc = new Set(
+    Array.from(
+      document.querySelectorAll<HTMLElement>("article .block-card--pdf-page[data-pdf-src]"),
+    )
+      .map((card) => card.getAttribute("data-pdf-src") || "")
+      .filter(Boolean),
+  )
+  // Prefer .block-card[data-block-id] (works on any wrapped element type:
+  // paragraphs, lists, code, headings, blockquotes, and PDF pages). For PDFs,
+  // Jarvis Read targets every synthetic page card so paper comments can be
+  // page-scoped while the bridge carries forward prior-page context.
+  const cards = Array.from(
+    document.querySelectorAll<HTMLElement>("article .block-card[data-block-id]"),
+  )
   for (const card of cards) {
-    if (card.classList.contains("block-card--pdf-page")) continue
     const hash = card.dataset.blockId || ""
+    const isPdfPage = card.classList.contains("block-card--pdf-page")
+    if (isPdfPage) {
+      const pdfSrc = card.getAttribute("data-pdf-src") || ""
+      const pageNumber = Number(card.getAttribute("data-pdf-page") || "0")
+      if (!hash || seen.has(hash) || !pdfSrc || !Number.isFinite(pageNumber) || pageNumber <= 0)
+        continue
+      seen.add(hash)
+      out.push({
+        hash,
+        text: `[PDF page ${pageNumber}: ${pdfSrc}]`,
+        pdfSrc,
+        pageNumber,
+      })
+      continue
+    }
     // PDF figure → pass pdfSrc; the bridge extracts the paper's text
     // server-side. Otherwise use the rendered text content.
     const pdfFigure = card.querySelector<HTMLElement>("figure.pdf-embed[data-pdf-src]")
     const pdfSrc = pdfFigure?.getAttribute("data-pdf-src") || ""
-    const text = (card.querySelector("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")?.textContent || "")
-      .replace(/\s+/g, " ").trim()
+    if (pdfSrc && pdfPagesBySrc.has(pdfSrc)) continue
+    const text = (
+      card.querySelector("p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure")
+        ?.textContent || ""
+    )
+      .replace(/\s+/g, " ")
+      .trim()
     if (!hash || seen.has(hash)) continue
     if (!text && !pdfSrc) continue
     seen.add(hash)
-    const entry: { hash: string; text: string; pdfSrc?: string } = { hash, text: text || `[PDF: ${pdfSrc}]` }
+    const entry: { hash: string; text: string; pdfSrc?: string } = {
+      hash,
+      text: text || `[PDF: ${pdfSrc}]`,
+    }
     if (pdfSrc) entry.pdfSrc = pdfSrc
     out.push(entry)
   }
   if (cards.length === 0) {
-    for (const p of Array.from(document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"))) {
+    for (const p of Array.from(
+      document.querySelectorAll<HTMLElement>("article p[data-paragraph-hash]"),
+    )) {
       const hash = p.dataset.paragraphHash || ""
       const text = (p.textContent || "").replace(/\s+/g, " ").trim()
       if (!hash || !text || seen.has(hash)) continue
@@ -758,7 +792,6 @@ function collectPageParagraphs(): Array<{ hash: string; text: string; pdfSrc?: s
   }
   return out
 }
-
 
 // AI comment widget — registered with the block-widget runtime so that
 // state (original comment + discussion thread + saved flag) outlives
@@ -817,14 +850,22 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     }
     return null
   },
-  defaultState: () => ({ comment: "", thread: [], saved: false, dismissedIndexes: [], likedIndexes: [] }),
+  defaultState: () => ({
+    comment: "",
+    thread: [],
+    saved: false,
+    dismissedIndexes: [],
+    likedIndexes: [],
+  }),
   mount: (node: HTMLElement, state: AiCommentState, ctx: WidgetCtx<AiCommentState>) => {
     // If this comment has been retired by ✗-on-original, skip entirely.
     if (state.saved) return
     // If there's nothing to show — no AI comment, no thread, no
     // composer-open hint — skip. (composerInitiallyOpen flag is set by
     // the block-page toolbar's "comment on this block" entry point.)
-    const hasComposerHint = Boolean((state as { composerInitiallyOpen?: boolean }).composerInitiallyOpen)
+    const hasComposerHint = Boolean(
+      (state as { composerInitiallyOpen?: boolean }).composerInitiallyOpen,
+    )
     if (!state.comment && state.thread.length === 0 && !hasComposerHint) return
 
     // Defensive: don't double-attach if a previous mount didn't fully clean up.
@@ -874,9 +915,15 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     const distillPanel = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-panel")!
     const distillLoading = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-loading")!
     const distillPreview = widget.querySelector<HTMLElement>(".ai-comment-widget__distill-preview")!
-    const distillPathInput = widget.querySelector<HTMLInputElement>(".ai-comment-widget__distill-path")!
-    const distillContent = widget.querySelector<HTMLTextAreaElement>(".ai-comment-widget__distill-content")!
-    const distillSaveBtn = widget.querySelector<HTMLButtonElement>(".ai-comment-widget__distill-save")!
+    const distillPathInput = widget.querySelector<HTMLInputElement>(
+      ".ai-comment-widget__distill-path",
+    )!
+    const distillContent = widget.querySelector<HTMLTextAreaElement>(
+      ".ai-comment-widget__distill-content",
+    )!
+    const distillSaveBtn = widget.querySelector<HTMLButtonElement>(
+      ".ai-comment-widget__distill-save",
+    )!
 
     const setStatus = (msg: string, kind: "info" | "error" | "ok" = "info") => {
       statusEl.hidden = false
@@ -888,7 +935,10 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       statusEl.innerHTML = html
       statusEl.dataset.kind = kind
     }
-    const clearStatus = () => { statusEl.hidden = true; statusEl.textContent = "" }
+    const clearStatus = () => {
+      statusEl.hidden = true
+      statusEl.textContent = ""
+    }
 
     // Working copies kept in closure to avoid setState-induced remounts
     // while the user is typing. They get written through to the runtime
@@ -1017,11 +1067,17 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     }
 
     const sendReply = async () => {
-      if (!sidebar) { setStatus("no sidebar", "error"); return }
+      if (!sidebar) {
+        setStatus("no sidebar", "error")
+        return
+      }
       const userText = inputEl.value.trim()
       if (!userText) return
       const bridgeOrigin = findBridgeOrigin(sidebar)
-      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      if (!bridgeOrigin) {
+        setStatus("no bridge origin", "error")
+        return
+      }
       const paragraphText = (node.textContent || "").replace(/\s+/g, " ").trim()
       thread.push({ role: "user", text: userText, createdAt: new Date().toISOString() })
       inputEl.value = ""
@@ -1042,7 +1098,7 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         clearStatus()
         sendBtn.disabled = false
         sendBtn.textContent = "Send"
-        openComposer()  // re-open for the next annotation
+        openComposer() // re-open for the next annotation
         return
       }
 
@@ -1058,9 +1114,17 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         const res = await fetch(`${bridgeOrigin}/api/ai-comments/discuss`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
-          body: JSON.stringify({ paragraphText, originalComment: state.comment, thread: threadForSend }),
+          body: JSON.stringify({
+            paragraphText,
+            originalComment: state.comment,
+            thread: threadForSend,
+          }),
         })
-        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; reply?: string }
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          reply?: string
+        }
         if (!res.ok || !payload.ok || !payload.reply) {
           throw new Error(payload.error || `bridge returned ${res.status}`)
         }
@@ -1100,9 +1164,15 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       distillPreview.hidden = true
     }
     const openDistill = async () => {
-      if (!sidebar) { setStatus("no sidebar", "error"); return }
+      if (!sidebar) {
+        setStatus("no sidebar", "error")
+        return
+      }
       const bridgeOrigin = findBridgeOrigin(sidebar)
-      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      if (!bridgeOrigin) {
+        setStatus("no bridge origin", "error")
+        return
+      }
       const paragraphText = (node.textContent || "").replace(/\s+/g, " ").trim()
       distillPanel.hidden = false
       distillLoading.hidden = false
@@ -1118,7 +1188,12 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
             thread,
           }),
         })
-        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; filename?: string; content?: string }
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          filename?: string
+          content?: string
+        }
         if (!res.ok || !payload.ok || !payload.content) {
           throw new Error(payload.error || `bridge returned ${res.status}`)
         }
@@ -1130,7 +1205,10 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
         const sourceSlug = (sidebar.dataset.fileSlug || "").replace(/^\/+|\/+$/g, "")
         const wikilinkFooter = sourceSlug ? `\n\n---\n\n*Distilled from* [[${sourceSlug}]]\n` : ""
         distillContentBuffer = payload.content + wikilinkFooter
-        const safeName = (payload.filename || "distilled-note").replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "distilled-note"
+        const safeName =
+          (payload.filename || "distilled-note")
+            .replace(/[^a-zA-Z0-9._-]/g, "-")
+            .replace(/^-+|-+$/g, "") || "distilled-note"
         distillPathInput.value = `Thoughts/distilled/${safeName}.md`
         distillContent.value = distillContentBuffer
         distillLoading.hidden = true
@@ -1145,10 +1223,16 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     const saveDistill = async () => {
       if (!sidebar) return
       const bridgeOrigin = findBridgeOrigin(sidebar)
-      if (!bridgeOrigin) { setStatus("no bridge origin", "error"); return }
+      if (!bridgeOrigin) {
+        setStatus("no bridge origin", "error")
+        return
+      }
       const targetPath = distillPathInput.value.trim()
       const content = distillContent.value
-      if (!targetPath) { setStatus("path required", "error"); return }
+      if (!targetPath) {
+        setStatus("path required", "error")
+        return
+      }
       distillSaveBtn.disabled = true
       distillSaveBtn.textContent = "Saving…"
       try {
@@ -1157,27 +1241,41 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
           headers: { "Content-Type": "application/json", "X-Role-Id": "admin" },
           body: JSON.stringify({ path: targetPath, content }),
         })
-        const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; slug?: string; filePath?: string; warnings?: Array<{ rule: string; message: string }> }
-        if (!res.ok || !payload.ok) throw new Error(payload.error || `bridge returned ${res.status}`)
+        const payload = (await res.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+          slug?: string
+          filePath?: string
+          warnings?: Array<{ rule: string; message: string }>
+        }
+        if (!res.ok || !payload.ok)
+          throw new Error(payload.error || `bridge returned ${res.status}`)
         closeDistill()
         const slug = payload.slug || ""
         const slugUrl = slug ? `/${slug.replace(/^\/+/, "")}` : ""
         // Surface validator warnings in the status pill so the user
         // (and Jarvis on its next pass) sees them. Hard errors already
         // throw above; this is the soft-warning channel.
-        const warningSuffix = payload.warnings && payload.warnings.length
-          ? ` · ${payload.warnings.length} warning(s): ${payload.warnings.map((w) => w.message).join("; ")}`
-          : ""
+        const warningSuffix =
+          payload.warnings && payload.warnings.length
+            ? ` · ${payload.warnings.length} warning(s): ${payload.warnings.map((w) => w.message).join("; ")}`
+            : ""
         // Build a real anchor + auto-navigate after quartz finishes its
         // rebuild (~1.5-2s for a new file). The link is the user's escape
         // hatch in case the auto-nav is too fast and 404s.
         if (slugUrl) {
           const safeUrl = slugUrl.replace(/[<>"]/g, "")
-          setStatusHTML(`Saved → <a href="${safeUrl}" data-distill-link>open the new note</a>${warningSuffix}`, "ok")
+          setStatusHTML(
+            `Saved → <a href="${safeUrl}" data-distill-link>open the new note</a>${warningSuffix}`,
+            "ok",
+          )
           window.setTimeout(() => {
-            const navFn = (window as Window & { spaNavigate?: (url: URL, isBack?: boolean) => Promise<void> }).spaNavigate
+            const navFn = (
+              window as Window & { spaNavigate?: (url: URL, isBack?: boolean) => Promise<void> }
+            ).spaNavigate
             try {
-              if (typeof navFn === "function") void navFn(new URL(safeUrl, window.location.origin), false)
+              if (typeof navFn === "function")
+                void navFn(new URL(safeUrl, window.location.origin), false)
               else window.location.assign(safeUrl)
             } catch {
               window.location.assign(safeUrl)
@@ -1196,7 +1294,9 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     }
 
     widget.addEventListener("click", async (event) => {
-      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-ai-comment-action]")
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+        "[data-ai-comment-action]",
+      )
       if (!target) return
       const action = target.dataset.aiCommentAction
 
@@ -1206,9 +1306,18 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
       }
 
       // Widget-level actions (no peer context).
-      if (action === "distill-open") { void openDistill(); return }
-      if (action === "distill-cancel") { closeDistill(); return }
-      if (action === "distill-save") { void saveDistill(); return }
+      if (action === "distill-open") {
+        void openDistill()
+        return
+      }
+      if (action === "distill-cancel") {
+        closeDistill()
+        return
+      }
+      if (action === "distill-save") {
+        void saveDistill()
+        return
+      }
 
       // Resolve which peer this action belongs to.
       const peerEl = target.closest<HTMLElement>(".ai-comment-peer")
@@ -1258,7 +1367,9 @@ const AI_COMMENT_WIDGET: BlockWidget<AiCommentState> = {
     // INTO that slot instead of as a sibling, so CSS can lay it out
     // beside the page canvas. The empty-state hint inside the slot
     // is cleared on first mount.
-    const annotationSlot = node.querySelector<HTMLElement>(":scope > .pdf-viewer__page-row > .block-card__annotations, :scope > .block-card__annotations")
+    const annotationSlot = node.querySelector<HTMLElement>(
+      ":scope > .pdf-viewer__page-row > .block-card__annotations, :scope > .block-card__annotations",
+    )
     if (annotationSlot) {
       annotationSlot.querySelector(".block-card__annotations-empty")?.remove()
       annotationSlot.appendChild(widget)
@@ -1310,15 +1421,18 @@ getBlockWidgetRuntime().register(AI_COMMENT_WIDGET)
   async function hydrateFromBridge(): Promise<void> {
     if (hydrated) return
     const origin = findOrigin()
-    if (!origin) return  // sidebar not yet in DOM; try again on next hydrate trigger
+    if (!origin) return // sidebar not yet in DOM; try again on next hydrate trigger
     try {
       const res = await fetch(`${origin}/api/widget-state`, { headers: { "X-Role-Id": "admin" } })
       if (!res.ok) return
-      const payload = (await res.json().catch(() => null)) as { ok?: boolean; state?: Record<string, unknown> } | null
+      const payload = (await res.json().catch(() => null)) as {
+        ok?: boolean
+        state?: Record<string, unknown>
+      } | null
       if (!payload?.ok || !payload.state) return
-      hydrated = true  // only mark hydrated on a successful response
+      hydrated = true // only mark hydrated on a successful response
       const remoteKeys = Object.keys(payload.state)
-      if (remoteKeys.length === 0) return  // bridge has nothing — keep localStorage
+      if (remoteKeys.length === 0) return // bridge has nothing — keep localStorage
       runtime.replaceAll(payload.state)
       runtime.attachAll()
     } catch {
@@ -1340,7 +1454,10 @@ getBlockWidgetRuntime().register(AI_COMMENT_WIDGET)
     const origin = findOrigin()
     if (!origin) return
     if (upserts.size === 0 && deletes.size === 0) return
-    const body: { upserts: Record<string, unknown>; deletes: string[] } = { upserts: {}, deletes: [] }
+    const body: { upserts: Record<string, unknown>; deletes: string[] } = {
+      upserts: {},
+      deletes: [],
+    }
     for (const [k, v] of upserts) body.upserts[k] = v
     for (const k of deletes) body.deletes.push(k)
     upserts.clear()
@@ -1375,7 +1492,9 @@ getBlockWidgetRuntime().register(AI_COMMENT_WIDGET)
   } else {
     void hydrateFromBridge()
   }
-  document.addEventListener("nav", () => { void hydrateFromBridge() })
+  document.addEventListener("nav", () => {
+    void hydrateFromBridge()
+  })
 })()
 
 async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
@@ -1399,18 +1518,24 @@ async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
   const paragraphs = allParagraphs.filter((p) => {
     const existing = runtime.get<AiCommentState>("ai-comment", p.hash)
     if (!existing) return true
-    if (existing.saved) return true  // user retired it; OK to re-comment
+    if (existing.saved) return true // user retired it; OK to re-comment
     return false
   })
   const skipped = allParagraphs.length - paragraphs.length
   if (paragraphs.length === 0) {
-    setAiStatus(sidebar, `Jarvis Read: every paragraph already has a comment (dismiss first to re-roll).`)
+    setAiStatus(
+      sidebar,
+      `Jarvis Read: every paragraph already has a comment (dismiss first to re-roll).`,
+    )
     return
   }
   const originalLabel = button.textContent
   button.disabled = true
   button.textContent = "Reading…"
-  setAiStatus(sidebar, `Jarvis Read: sending ${paragraphs.length} paragraph${paragraphs.length === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already commented, skipped)` : ""}...`)
+  setAiStatus(
+    sidebar,
+    `Jarvis Read: sending ${paragraphs.length} paragraph${paragraphs.length === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already commented, skipped)` : ""}...`,
+  )
   try {
     const res = await fetch(`${bridgeOrigin}/api/ai-comments/generate`, {
       method: "POST",
@@ -1440,11 +1565,19 @@ async function runAiRead(sidebar: HTMLElement, button: HTMLButtonElement) {
     runtime.attachAll()
     let mounted = 0
     for (const c of comments) {
-      if (document.querySelector(`article p[data-paragraph-hash="${CSS.escape(c.hash)}"]`)) {
+      if (
+        document.querySelector(`article p[data-paragraph-hash="${CSS.escape(c.hash)}"]`) ||
+        document.querySelector(
+          `article .block-card[data-block-id="${CSS.escape(c.hash)}"] .ai-comment-widget`,
+        )
+      ) {
         mounted++
       }
     }
-    setAiStatus(sidebar, `Jarvis Read: ${mounted} new comment${mounted === 1 ? "" : "s"} mounted${skipped > 0 ? ` (${skipped} already-commented paragraphs preserved)` : ""}.`)
+    setAiStatus(
+      sidebar,
+      `Jarvis Read: ${mounted} new comment${mounted === 1 ? "" : "s"} mounted${skipped > 0 ? ` (${skipped} already-commented paragraphs preserved)` : ""}.`,
+    )
   } catch (error) {
     const message = error instanceof Error ? error.message : "Jarvis Read failed"
     setAiStatus(sidebar, `Jarvis Read failed: ${message}`)
@@ -1605,7 +1738,9 @@ function ensureSidebarEventStream(): void {
         const slug = (data.slug || "").replace(/^\/+|\/+$/g, "")
         if (!slug) return
         const url = new URL(`/${slug}`, window.location.origin)
-        const navFn = (window as Window & { spaNavigate?: (u: URL, isBack?: boolean) => Promise<void> }).spaNavigate
+        const navFn = (
+          window as Window & { spaNavigate?: (u: URL, isBack?: boolean) => Promise<void> }
+        ).spaNavigate
         if (typeof navFn === "function") void navFn(url, false)
         else window.location.assign(url.toString())
       } catch (err) {
