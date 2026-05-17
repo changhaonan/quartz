@@ -1,5 +1,23 @@
 import { PageLayout, SharedLayout } from "./quartz/cfg"
 import * as Component from "./quartz/components"
+import { FileTrieNode } from "./quartz/util/fileTrie"
+
+// Explorer with the dashboard (主面板) pinned to the very top, then Quartz's
+// default folders-first / alphabetical ordering. The sortFn is serialized to
+// the client, so it must stay self-contained (no outer references).
+const explorerOptions = {
+  sortFn: (a: FileTrieNode, b: FileTrieNode) => {
+    if (a.slug === "dashboard") return -1
+    if (b.slug === "dashboard") return 1
+    if ((!a.isFolder && !b.isFolder) || (a.isFolder && b.isFolder)) {
+      return a.displayName.localeCompare(b.displayName, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    }
+    return !a.isFolder && b.isFolder ? 1 : -1
+  },
+}
 
 // components shared across all pages
 export const sharedPageComponents: SharedLayout = {
@@ -39,7 +57,7 @@ export const defaultContentPageLayout: PageLayout = {
         { Component: Component.ReaderMode() },
       ],
     }),
-    Component.Explorer(),
+    Component.Explorer(explorerOptions),
   ],
   right: [
     Component.Graph(),
@@ -63,7 +81,7 @@ export const defaultListPageLayout: PageLayout = {
         { Component: Component.Darkmode() },
       ],
     }),
-    Component.Explorer(),
+    Component.Explorer(explorerOptions),
   ],
   right: [],
 }

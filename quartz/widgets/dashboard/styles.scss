@@ -1,0 +1,1118 @@
+// Dashboard widget styles. Imported by quartz/widgets/styles.scss (the widget
+// CSS barrel). Uses Quartz theme CSS variables so it tracks light/dark mode.
+//
+// Layout philosophy (Notion-inspired): one calm outer panel, and *inside* it
+// no nested boxes. Sections are separated by whitespace + hairline dividers,
+// not by borders-within-borders. Interactive rows (goals, metric cards) use a
+// soft fill + hover instead of an outline so the panel doesn't read as a grid
+// of cramped boxes.
+
+$dash-hairline: color-mix(in srgb, var(--lightgray) 70%, transparent);
+$dash-fill: color-mix(in srgb, var(--lightgray) 28%, transparent);
+$dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  font-size: 0.9rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid $dash-hairline;
+  border-radius: 12px;
+  background: var(--light);
+}
+
+// --- Header ----------------------------------------------------------------
+// One tight cluster, top-left — the timestamp and the refresh control sit
+// together. (Was justify-content: space-between, which flung them to opposite
+// edges with a wide empty gap between.)
+.dash-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0; // defend against inherited content-typography margins
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+}
+
+.dash-title {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.dash-subtitle {
+  margin: 0;
+  color: var(--gray);
+  font-size: 0.76rem;
+}
+
+.dash-btn {
+  border: 1px solid $dash-hairline;
+  background: transparent;
+  color: var(--darkgray);
+  border-radius: 7px;
+  padding: 0.32rem 0.7rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+
+  &:hover {
+    background: $dash-fill;
+    border-color: var(--gray);
+    color: var(--secondary);
+  }
+}
+
+.dash-save {
+  font-size: 0.74rem;
+  color: var(--gray);
+
+  &--error {
+    color: #d9534f;
+  }
+}
+
+// --- In-place edit fields --------------------------------------------------
+// Editing is inline (no popup, no edit mode): a field reads as plain text and
+// only reveals itself as editable on hover (soft fill) / focus (ring). Inherit
+// the surrounding type so each field looks identical to the static text it
+// replaces — the caller adds a modifier class for size/weight/colour.
+.dash-edit {
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0.1rem 0.3rem;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+
+  &::placeholder {
+    color: var(--gray);
+    opacity: 0.65;
+  }
+  &:hover {
+    background: $dash-fill;
+  }
+  &:focus {
+    outline: none;
+    background: var(--light);
+    border-color: var(--tertiary);
+  }
+}
+
+// --- Sections --------------------------------------------------------------
+// No box around a section — just a heading and its content. Consecutive
+// sections get a hairline rule so the panel still reads as distinct zones.
+.dash-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  & + & {
+    padding-top: 0.95rem;
+    border-top: 1px solid $dash-hairline;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+  }
+
+  h3 {
+    margin: 0.5rem 0 0.1rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--darkgray);
+  }
+
+  &__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+}
+
+.dash-empty {
+  color: var(--gray);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.dash-tag {
+  font-size: 0.72rem;
+  color: var(--gray);
+}
+
+// --- Goals board -----------------------------------------------------------
+// The "目标" section is a Notion-style board: three columns (每日 / 每周 / 主要),
+// each a soft-filled lane of goal cards. Cards drag between columns.
+
+// Board section header carries the view toolbar — let it wrap, centered.
+.dash-section__head--board {
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+
+// View toolbar — filter + sort dropdowns (Notion database-view toolbar).
+.dash-board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.dash-vselect {
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--darkgray);
+  background: transparent;
+  border: 1px solid $dash-hairline;
+  border-radius: 6px;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+
+  &:hover {
+    border-color: var(--gray);
+    background: $dash-fill;
+  }
+}
+
+.dash-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  align-items: start;
+
+  @media (max-width: 620px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: $dash-fill;
+  border: 1px solid transparent;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+
+  // Highlighted while a dragged card hovers this column.
+  &.is-droptarget {
+    border-color: var(--tertiary);
+    background: $dash-fill-hover;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.1rem 0.3rem;
+  }
+
+  &__title {
+    font-size: 0.78rem;
+    font-weight: 650;
+    color: var(--darkgray);
+  }
+
+  &__count {
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--gray);
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-height: 1.5rem;
+  }
+
+  &__add {
+    border: none;
+    background: none;
+    color: var(--gray);
+    text-align: left;
+    padding: 0.25rem 0.3rem;
+    font-size: 0.76rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+
+    &:hover {
+      background: $dash-fill;
+      color: var(--secondary);
+    }
+  }
+}
+
+// A 2px accent line between cards marking where a dragged card will land.
+.dash-drop-line {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--tertiary);
+  margin: -0.1rem 0;
+}
+
+// --- Goal card -------------------------------------------------------------
+// Layout: a full-height drag-handle strip on the left, then the card body.
+.dash-gcard {
+  display: flex;
+  align-items: stretch;
+  border-radius: 8px;
+  background: var(--light);
+  border: 1px solid $dash-hairline;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden; // clip the grip strip to the rounded corners
+  transition:
+    box-shadow 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
+
+  &:hover {
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.09);
+  }
+
+  // The source card, faded while its copy is dragged.
+  &.is-dragging {
+    opacity: 0.4;
+  }
+
+  // status === "done": the whole card reads as completed.
+  &.is-done {
+    .dash-gcard__title,
+    .dash-gcard__title-input {
+      text-decoration: line-through;
+      color: var(--gray);
+    }
+  }
+
+  // Drag handle — the only draggable part of the card, so the inline inputs
+  // keep normal click / text-select behaviour. A persistent left strip:
+  // discoverable (faintly visible at rest), and a real hit target.
+  &__grip {
+    flex: none;
+    width: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    color: var(--gray);
+    font-size: 0.7rem;
+    background: color-mix(in srgb, var(--lightgray) 22%, transparent);
+    opacity: 0.5;
+    user-select: none;
+    transition:
+      opacity 0.12s,
+      background 0.12s;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  &:hover &__grip {
+    opacity: 1;
+    background: $dash-fill;
+  }
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    padding: 0.5rem 0.55rem;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.4rem;
+  }
+
+  &__title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__title-input {
+    flex: 1;
+    font-weight: 600;
+  }
+
+  &__remove {
+    flex: none;
+    border: none;
+    background: none;
+    color: var(--gray);
+    cursor: pointer;
+    font-size: 0.76rem;
+    line-height: 1;
+    opacity: 0;
+    transition:
+      opacity 0.12s,
+      color 0.12s;
+
+    &:hover {
+      color: #d9534f;
+    }
+  }
+
+  &:hover &__remove {
+    opacity: 1;
+  }
+
+  &__note {
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+  &__note-input {
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+
+  // Priority + due-date row.
+  &__props {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  // Progress-log section (collapsed by default — see below).
+  &__log {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+}
+
+// --- Goal card progress log ------------------------------------------------
+// Collapsed: just a "进展 N" toggle. Expanded: an add-input + a timeline list.
+.dash-log-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0.1rem 0;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--gray);
+  cursor: pointer;
+  transition: color 0.12s;
+
+  &:hover {
+    color: var(--darkgray);
+  }
+
+  // CSS triangle caret — font-independent, rotates open.
+  &__caret {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0.22rem 0 0.22rem 0.32rem;
+    border-color: transparent transparent transparent currentColor;
+    transition: transform 0.12s;
+  }
+  &.is-open &__caret {
+    transform: rotate(90deg);
+  }
+}
+
+.dash-log-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.dash-log-add {
+  font: inherit;
+  font-size: 0.74rem;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid $dash-hairline;
+  border-radius: 5px;
+  background: var(--light);
+  padding: 0.2rem 0.4rem;
+  color: inherit;
+
+  &::placeholder {
+    color: var(--gray);
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--tertiary);
+  }
+}
+
+.dash-log-empty {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--gray);
+}
+
+.dash-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+// One log entry — a timeline row: timestamp, text, hover-reveal delete.
+.dash-log-entry {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.73rem;
+  line-height: 1.45;
+  padding-left: 0.5rem;
+  border-left: 2px solid $dash-hairline;
+
+  &__time {
+    flex: none;
+    color: var(--gray);
+    font-variant-numeric: tabular-nums;
+  }
+  &__text {
+    flex: 1;
+    min-width: 0;
+    color: var(--darkgray);
+    word-break: break-word;
+  }
+  &__x {
+    flex: none;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 0.62rem;
+    line-height: 1;
+    color: var(--gray);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.12s,
+      color 0.12s;
+
+    &:hover {
+      color: #d9534f;
+    }
+  }
+  &:hover &__x {
+    opacity: 1;
+  }
+}
+
+// --- Card property controls (Notion-database style) ------------------------
+// Status segmented control — three coarse steps, the goal's "progress".
+.dash-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: $dash-fill;
+
+  &__btn {
+    flex: 1;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    padding: 0.2rem 0.25rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    color: var(--gray);
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      color 0.12s;
+
+    &:hover {
+      color: var(--darkgray);
+    }
+
+    // The selected step lifts onto a "chip", coloured by which step it is.
+    &.is-active {
+      background: var(--light);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      color: var(--darkgray);
+    }
+    &.is-active.dash-seg__btn--doing {
+      color: var(--tertiary);
+    }
+    &.is-active.dash-seg__btn--done {
+      color: #2f9e44;
+    }
+  }
+}
+
+// Read-only status, shown as a single coloured pill.
+.dash-statpill {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: $dash-fill;
+  color: var(--darkgray);
+
+  &--doing {
+    background: color-mix(in srgb, var(--tertiary) 18%, transparent);
+    color: var(--tertiary);
+  }
+  &--done {
+    background: #d3f9d8;
+    color: #2b8a3e;
+  }
+}
+
+// Priority — a styled native <select> so the dropdown is real and accessible.
+.dash-prio {
+  font: inherit;
+  font-size: 0.7rem;
+  border: 1px solid $dash-hairline;
+  border-radius: 5px;
+  padding: 0.14rem 0.3rem;
+  background: transparent;
+  color: var(--gray);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s;
+
+  &--high {
+    color: #d9534f;
+    border-color: color-mix(in srgb, #d9534f 45%, transparent);
+  }
+  &--mid {
+    color: #d98b22;
+    border-color: color-mix(in srgb, #f0ad4e 55%, transparent);
+  }
+  &--low {
+    color: var(--tertiary);
+    border-color: color-mix(in srgb, var(--tertiary) 45%, transparent);
+  }
+}
+
+// Read-only priority pill.
+.dash-priopill {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+
+  &--high {
+    background: #ffe3e3;
+    color: #c92a2a;
+  }
+  &--mid {
+    background: #fff3bf;
+    color: #d98b22;
+  }
+  &--low {
+    background: color-mix(in srgb, var(--tertiary) 16%, transparent);
+    color: var(--tertiary);
+  }
+}
+
+// Due date — styled native date input.
+.dash-date {
+  font: inherit;
+  font-size: 0.7rem;
+  border: 1px solid $dash-hairline;
+  border-radius: 5px;
+  padding: 0.12rem 0.3rem;
+  background: transparent;
+  color: var(--gray);
+  color-scheme: light dark;
+  cursor: pointer;
+
+  &.has-value {
+    color: var(--darkgray);
+    border-color: var(--gray);
+  }
+}
+
+.dash-duepill {
+  font-size: 0.68rem;
+  color: var(--gray);
+}
+
+// Tags — wrapping chips plus an inline add-input.
+.dash-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dash-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.68rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: $dash-fill;
+  color: var(--darkgray);
+
+  &__x {
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
+    font-size: 0.62rem;
+    color: var(--gray);
+    cursor: pointer;
+    transition: color 0.12s;
+
+    &:hover {
+      color: #d9534f;
+    }
+  }
+}
+
+.dash-tag-input {
+  font: inherit;
+  font-size: 0.68rem;
+  width: 4.5rem;
+  border: none;
+  background: none;
+  outline: none;
+  color: inherit;
+
+  &::placeholder {
+    color: var(--gray);
+  }
+}
+
+.dash-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--lightgray);
+  overflow: hidden;
+
+  &__fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--secondary);
+    transition: width 0.2s;
+
+    &.is-over {
+      background: #d9534f;
+    }
+  }
+}
+
+// --- Stat / metric cards ---------------------------------------------------
+// Soft-filled tiles (no outline) — the Notion "property" look.
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+.dash-stat {
+  position: relative;
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: $dash-fill;
+  transition: background 0.12s;
+
+  &__value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+
+    &.is-editable {
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    &.is-editable:hover {
+      color: var(--secondary);
+    }
+  }
+
+  &__unit {
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: var(--gray);
+    margin-left: 0.2rem;
+  }
+
+  &__trend {
+    font-size: 0.78rem;
+    margin-left: 0.3rem;
+
+    &--up {
+      color: #2f9e44;
+    }
+    &--down {
+      color: #d9534f;
+    }
+    &--flat {
+      color: var(--gray);
+    }
+  }
+
+  &__label {
+    font-size: 0.74rem;
+    color: var(--gray);
+    margin-top: 0.3rem;
+  }
+
+  &__note {
+    font-size: 0.7rem;
+    color: var(--gray);
+    margin-top: 0.15rem;
+  }
+
+  // Editable metric card: value + unit share a baseline row, label + note
+  // stack below — each an in-place field matching its static counterpart.
+  &__value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.1rem;
+    // Leave room for the hover ✕ so the unit field never slips under it.
+    padding-right: 0.8rem;
+  }
+
+  &__value-input {
+    flex: 1;
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  &__unit-input {
+    flex: none;
+    width: 3.4rem;
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+
+  &__label-input {
+    font-size: 0.74rem;
+    color: var(--gray);
+    margin-top: 0.25rem;
+  }
+
+  &__note-input {
+    font-size: 0.7rem;
+    color: var(--gray);
+    margin-top: 0.1rem;
+  }
+
+  &__remove {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.45rem;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  &--metric:hover {
+    background: $dash-fill-hover;
+  }
+  &--metric:hover .dash-stat__remove {
+    opacity: 1;
+  }
+
+  &--good .dash-stat__value {
+    color: #2f9e44;
+  }
+  &--warn .dash-stat__value {
+    color: #d9534f;
+  }
+}
+
+// --- Health (charts) -------------------------------------------------------
+// Weight is the headline: a soft-filled card with a big number and an area
+// chart that bleeds edge-to-edge. Steps / sleep / heart rate sit below as
+// smaller cards, each with a sparkline.
+.dash-health__hero {
+  background: $dash-fill;
+  border-radius: 12px;
+  padding: 0.85rem 1rem 0;
+  overflow: hidden;
+}
+
+.dash-health__hero-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.dash-health__chart {
+  // Bleed the area chart to the card edges; overflow:hidden clips it to the
+  // card's rounded corners.
+  margin: 0.5rem -1rem 0;
+}
+
+.dash-health__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+
+  @media (max-width: 540px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-health__card {
+  display: flex;
+  flex-direction: column;
+  background: $dash-fill;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem 0;
+  overflow: hidden;
+}
+
+.dash-health__spark {
+  margin: 0.4rem -0.8rem 0;
+}
+
+.dash-health__label {
+  font-size: 0.74rem;
+  color: var(--gray);
+}
+
+.dash-health__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+
+  &--sm {
+    font-size: 1.18rem;
+    margin-top: 0.1rem;
+  }
+
+  &--muted {
+    color: var(--gray);
+  }
+}
+
+.dash-health__unit {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--gray);
+  margin-left: 0.15rem;
+}
+
+.dash-health__delta {
+  margin-left: auto;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--gray);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-chart {
+  display: block;
+  width: 100%;
+  color: var(--secondary);
+
+  &--empty {
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--lightgray) 35%, transparent);
+  }
+}
+
+// --- Targets / lists -------------------------------------------------------
+.dash-sub {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-target {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.28rem 0;
+
+  &__label {
+    font-size: 0.76rem;
+    min-width: 9rem;
+    color: var(--darkgray);
+  }
+
+  &__num {
+    font-size: 0.72rem;
+    color: var(--gray);
+    min-width: 8.5rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.dash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--lightgray) 45%, transparent);
+    font-size: 0.8rem;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  &__main {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  a.dash-list__main:hover {
+    color: var(--secondary);
+  }
+
+  &__meta {
+    color: var(--gray);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+}
+
+.dash-alerts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-alert {
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 7px;
+  margin: 0.25rem 0;
+  border-left: 3px solid var(--gray);
+  background: $dash-fill;
+
+  &--watch {
+    border-left-color: #f0ad4e;
+  }
+  &--info {
+    border-left-color: var(--tertiary);
+  }
+  &--alert,
+  &--critical {
+    border-left-color: #d9534f;
+  }
+}
+
+// --- Workflow cards --------------------------------------------------------
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 0.6rem;
+}
+
+.dash-card {
+  display: block;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  background: $dash-fill;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s;
+
+  &:hover {
+    background: $dash-fill-hover;
+  }
+
+  &__title {
+    font-weight: 600;
+    font-size: 0.84rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--gray);
+  }
+}
+
+.dash-pill {
+  font-size: 0.67rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--lightgray);
+  color: var(--darkgray);
+  text-transform: lowercase;
+  white-space: nowrap;
+
+  &--ok {
+    background: #d3f9d8;
+    color: #2b8a3e;
+  }
+  &--error {
+    background: #ffe3e3;
+    color: #c92a2a;
+  }
+  &--unknown {
+    background: var(--lightgray);
+    color: var(--gray);
+  }
+}
+
+.dash-bridge {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-sub h3:first-child {
+  margin-top: 0;
+}

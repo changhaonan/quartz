@@ -16,6 +16,7 @@ import {
   WORKFLOW_BOARD_TYPE,
   WorkflowBoardSchema,
 } from "./workflow/schema"
+import { DASHBOARD_SCHEMA_VERSION, DASHBOARD_TYPE, DashboardDataSchema } from "./dashboard/schema"
 
 export interface WidgetSchemaDescriptor {
   schema: ZodType<unknown>
@@ -30,6 +31,10 @@ export const widgetSchemas: Record<string, WidgetSchemaDescriptor> = {
   [WORKFLOW_BOARD_TYPE]: {
     schema: WorkflowBoardSchema,
     version: WORKFLOW_BOARD_SCHEMA_VERSION,
+  },
+  [DASHBOARD_TYPE]: {
+    schema: DashboardDataSchema,
+    version: DASHBOARD_SCHEMA_VERSION,
   },
 }
 

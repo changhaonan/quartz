@@ -62,6 +62,22 @@
   }
 }
 
+// Dashboard page gets a wider canvas: drop the right sidebar (graph / TOC /
+// backlinks add nothing to a dashboard) and hand its column to the center.
+@media all and (min-width: 1200px) {
+  body[data-slug="dashboard"] .page > #quartz-body {
+    grid-template:
+      "grid-sidebar-left grid-header grid-assistant" auto
+      "grid-sidebar-left grid-center grid-assistant" auto
+      "grid-sidebar-left grid-footer grid-assistant" auto /
+      280px minmax(0, 1fr) clamp(380px, 30vw, 600px) !important;
+  }
+}
+
+body[data-slug="dashboard"] .sidebar.right {
+  display: none !important;
+}
+
 .bridge-frame-card[data-bridge-width="wide"] {
   width: 100%;
 }

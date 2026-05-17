@@ -93,6 +93,7 @@ const config: QuartzConfig = {
       Plugin.Static(),
       Plugin.Favicon(),
       Plugin.NotFoundPage(),
+      Plugin.DashboardAggregate(),
       // Disabled for the isolated probe: this keeps the build focused on
       // content, backlinks, graph/search indexes, and pages.
       // Plugin.CustomOgImages(),

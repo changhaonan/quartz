@@ -2,6 +2,7 @@
 // client-side registry on import. Add new widgets here.
 import "./illustration"
 import "./workflow"
+import "./dashboard"
 
 export { registerWidget, getWidget, listWidgets } from "./registry"
 export { fetchWidgetData, writeWidget } from "./client"
