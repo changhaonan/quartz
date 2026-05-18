@@ -1,0 +1,29 @@
+// Global language toggle, sat in the page chrome next to the darkmode button.
+// Both labels are emitted; CSS shows the one matching <html data-lang>, set
+// before paint by language.inline.ts — so there's no flash.
+.langtoggle {
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--darkgray);
+
+  & > span {
+    display: none;
+  }
+}
+
+:root[data-lang="zh-CN"] .langtoggle > .lang-zh {
+  display: inline;
+}
+
+:root[data-lang="en-US"] .langtoggle > .lang-en {
+  display: inline;
+}

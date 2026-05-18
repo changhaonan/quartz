@@ -1,5 +1,14 @@
 /** @jsxRuntime classic */
-import React, { useCallback, useEffect, useId, useRef, useState } from "react"
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { createRoot, type Root } from "react-dom/client"
 import type { JsonPatchOp, WidgetMountContext } from "../types"
 import type {
@@ -12,6 +21,24 @@ import type {
   GoalPriority,
   GoalStatus,
 } from "./schema"
+import { getStrings, type DashLocale, type Strings } from "./i18n"
+
+// ---------------------------------------------------------------------------
+// All user-facing text comes from the i18n table via this context, so the
+// panel renders consistently in one language. The Dashboard root provides it;
+// every component reads it with useStrings().
+// ---------------------------------------------------------------------------
+const StringsContext = createContext<Strings>(getStrings("zh-CN"))
+const useStrings = (): Strings => useContext(StringsContext)
+
+// The display locale is global, not per-panel: the chrome's language toggle
+// (language.inline.ts) keeps it on <html data-lang> and broadcasts a
+// `langchange` event. The dashboard reads it on mount and re-renders on change.
+function readGlobalLocale(): DashLocale {
+  const v =
+    typeof document !== "undefined" ? document.documentElement.getAttribute("data-lang") : null
+  return v === "en-US" || v === "zh-CN" ? v : "zh-CN"
+}
 
 // ---------------------------------------------------------------------------
 // Aggregate shape — mirrors quartz/plugins/emitters/dashboardAggregate.ts.
@@ -74,7 +101,7 @@ function EditableField(props: {
   placeholder?: string
   className?: string
   ariaLabel?: string
-  // Focus + select on mount — used for the row a "+ 添加" click just created
+  // Focus + select on mount — used for the row a "+ add" click just created
   // so the user can immediately type instead of hunting for the input.
   focusOnMount?: boolean
   onCommit: (value: string) => void
@@ -124,15 +151,11 @@ function EditableField(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Section: 目标 — a Notion-style board. Each cadence (每日 / 每周 / 主要) is a
+// Goals — a Notion-style board. Each cadence (daily / weekly / main) is a
 // column; each goal is a card. Editing is in-place; a card is dragged between
 // columns to change its cadence (the only way to re-bucket a goal).
 // ---------------------------------------------------------------------------
-const GOAL_GROUPS: Array<{ cadence: GoalCadence; label: string }> = [
-  { cadence: "daily", label: "每日" },
-  { cadence: "weekly", label: "每周" },
-  { cadence: "main", label: "主要" },
-]
+const GOAL_CADENCES: GoalCadence[] = ["daily", "weekly", "main"]
 
 // Where a drag is currently pointing: a column, and the card it would land
 // before (null = end of the column).
@@ -162,27 +185,12 @@ function moveGoal(
 }
 
 // --- Card property controls (Notion-database style) ------------------------
-const STATUS_OPTS: Array<{ value: GoalStatus; label: string }> = [
-  { value: "todo", label: "未开始" },
-  { value: "doing", label: "进行中" },
-  { value: "done", label: "已完成" },
-]
-
-const PRIORITY_OPTS: Array<{ value: GoalPriority; label: string }> = [
-  { value: "none", label: "优先级" },
-  { value: "high", label: "高" },
-  { value: "mid", label: "中" },
-  { value: "low", label: "低" },
-]
+const STATUS_VALUES: GoalStatus[] = ["todo", "doing", "done"]
+// Priority select order: "none" first (acts as the placeholder), then high→low.
+const PRIORITY_VALUES: GoalPriority[] = ["none", "high", "mid", "low"]
+const SORT_VALUES: DashboardView["sort"][] = ["manual", "priority", "dueDate", "status"]
 
 // --- Board view: filtering + sorting ---------------------------------------
-const SORT_OPTS: Array<{ value: DashboardView["sort"]; label: string }> = [
-  { value: "manual", label: "手动" },
-  { value: "priority", label: "优先级" },
-  { value: "dueDate", label: "截止日期" },
-  { value: "status", label: "状态" },
-]
-
 // Sort ranks. Status: active work first, done last. Priority: high first.
 const STATUS_RANK: Record<GoalStatus, number> = { doing: 0, todo: 1, done: 2 }
 const PRIORITY_RANK: Record<GoalPriority, number> = { high: 0, mid: 1, low: 2, none: 3 }
@@ -222,24 +230,22 @@ function StatusControl(props: {
   canWrite: boolean
   onChange: (s: GoalStatus) => void
 }) {
+  const t = useStrings()
   const { status, canWrite } = props
   if (!canWrite) {
-    const o = STATUS_OPTS.find((x) => x.value === status) ?? STATUS_OPTS[0]
-    return <span className={`dash-statpill dash-statpill--${status}`}>{o.label}</span>
+    return <span className={`dash-statpill dash-statpill--${status}`}>{t.status[status]}</span>
   }
   return (
-    <div className="dash-seg" role="group" aria-label="状态">
-      {STATUS_OPTS.map((o) => (
+    <div className="dash-seg" role="group" aria-label={t.statusAria}>
+      {STATUS_VALUES.map((v) => (
         <button
-          key={o.value}
+          key={v}
           type="button"
-          data-status={o.value}
-          className={`dash-seg__btn dash-seg__btn--${o.value}${
-            status === o.value ? " is-active" : ""
-          }`}
-          onClick={() => props.onChange(o.value)}
+          data-status={v}
+          className={`dash-seg__btn dash-seg__btn--${v}${status === v ? " is-active" : ""}`}
+          onClick={() => props.onChange(v)}
         >
-          {o.label}
+          {t.status[v]}
         </button>
       ))}
     </div>
@@ -253,35 +259,36 @@ function TagEditor(props: {
   canWrite: boolean
   onChange: (tags: string[]) => void
 }) {
+  const t = useStrings()
   const { tags, canWrite } = props
   const [input, setInput] = useState("")
   if (!canWrite) {
     if (tags.length === 0) return null
     return (
       <div className="dash-tags">
-        {tags.map((t) => (
-          <span className="dash-tag-chip" key={t}>
-            #{t}
+        {tags.map((tag) => (
+          <span className="dash-tag-chip" key={tag}>
+            #{tag}
           </span>
         ))}
       </div>
     )
   }
   const add = () => {
-    const t = input.trim()
-    if (t && !tags.includes(t)) props.onChange([...tags, t])
+    const v = input.trim()
+    if (v && !tags.includes(v)) props.onChange([...tags, v])
     setInput("")
   }
   return (
     <div className="dash-tags">
-      {tags.map((t) => (
-        <span className="dash-tag-chip" key={t}>
-          #{t}
+      {tags.map((tag) => (
+        <span className="dash-tag-chip" key={tag}>
+          #{tag}
           <button
             type="button"
             className="dash-tag-chip__x"
-            aria-label={`移除标签 ${t}`}
-            onClick={() => props.onChange(tags.filter((x) => x !== t))}
+            aria-label={t.tagRemove(tag)}
+            onClick={() => props.onChange(tags.filter((x) => x !== tag))}
           >
             ✕
           </button>
@@ -290,8 +297,8 @@ function TagEditor(props: {
       <input
         className="dash-tag-input"
         value={input}
-        placeholder="+ 标签"
-        aria-label="添加标签"
+        placeholder={t.tagAdd}
+        aria-label={t.tagAddAria}
         onChange={(e) => setInput(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
@@ -308,13 +315,14 @@ function TagEditor(props: {
 }
 
 // Progress timeline — a collapsible log of timestamped notes. Collapsed by
-// default (just a "进展 N" toggle) so cards stay compact; expand to read the
-// history or append an entry.
+// default (just a "Progress N" toggle) so cards stay compact; expand to read
+// the history or append an entry.
 function GoalLog(props: {
   entries: GoalLogEntry[]
   canWrite: boolean
   onChange: (entries: GoalLogEntry[]) => void
 }) {
+  const t = useStrings()
   const { entries, canWrite } = props
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState("")
@@ -338,7 +346,8 @@ function GoalLog(props: {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="dash-log-toggle__caret" aria-hidden="true" />
-        进展{entries.length > 0 ? ` ${entries.length}` : ""}
+        {t.logLabel}
+        {entries.length > 0 ? ` ${entries.length}` : ""}
       </button>
       {open && (
         <div className="dash-log-body">
@@ -346,8 +355,8 @@ function GoalLog(props: {
             <input
               className="dash-log-add"
               value={draft}
-              placeholder="记录进展…"
-              aria-label="记录进展"
+              placeholder={t.logAddPlaceholder}
+              aria-label={t.logAddAria}
               onChange={(e) => setDraft(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -359,7 +368,7 @@ function GoalLog(props: {
             />
           )}
           {entries.length === 0 ? (
-            <p className="dash-log-empty">还没有进展记录。</p>
+            <p className="dash-log-empty">{t.logEmpty}</p>
           ) : (
             <ul className="dash-log-list">
               {/* oldest-first in storage; show newest-first */}
@@ -374,7 +383,7 @@ function GoalLog(props: {
                       <button
                         type="button"
                         className="dash-log-entry__x"
-                        aria-label="删除这条进展"
+                        aria-label={t.logDelete}
                         onClick={() => removeEntry(idx)}
                       >
                         ✕
@@ -404,6 +413,7 @@ function GoalCard(props: {
   // land before this card or before the next one.
   onDragOver: (before: boolean) => void
 }) {
+  const t = useStrings()
   const { goal: g, canWrite, dragging, focus } = props
   const cardRef = useRef<HTMLDivElement>(null)
   const showProps = canWrite || g.priority !== "none" || Boolean(g.dueDate)
@@ -429,7 +439,7 @@ function GoalCard(props: {
       {canWrite && (
         <span
           className="dash-gcard__grip"
-          title="拖动以在列间移动"
+          title={t.dragHint}
           draggable
           onDragStart={(e) => {
             e.dataTransfer.effectAllowed = "move"
@@ -447,16 +457,16 @@ function GoalCard(props: {
             <EditableField
               className="dash-gcard__title-input"
               value={g.title}
-              placeholder="目标标题…"
-              ariaLabel="目标标题"
+              placeholder={t.goalTitlePlaceholder}
+              ariaLabel={t.goalTitleAria}
               focusOnMount={focus}
               onCommit={(title) => props.onPatch({ title })}
             />
           ) : (
-            <span className="dash-gcard__title">{g.title || "(未命名目标)"}</span>
+            <span className="dash-gcard__title">{g.title || t.untitledGoal}</span>
           )}
           {canWrite && (
-            <button className="dash-gcard__remove" title="删除目标" onClick={props.onRemove}>
+            <button className="dash-gcard__remove" title={t.removeGoal} onClick={props.onRemove}>
               ✕
             </button>
           )}
@@ -466,8 +476,8 @@ function GoalCard(props: {
           <EditableField
             className="dash-gcard__note-input"
             value={g.note}
-            placeholder="备注…"
-            ariaLabel="目标备注"
+            placeholder={t.notePlaceholder}
+            ariaLabel={t.goalNoteAria}
             onCommit={(note) => props.onPatch({ note })}
           />
         ) : (
@@ -486,19 +496,19 @@ function GoalCard(props: {
               <select
                 className={`dash-prio dash-prio--${g.priority}`}
                 value={g.priority}
-                aria-label="优先级"
+                aria-label={t.priorityAria}
                 onChange={(e) => props.onPatch({ priority: e.currentTarget.value as GoalPriority })}
               >
-                {PRIORITY_OPTS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.value === "none" ? "优先级" : `优先级 · ${o.label}`}
+                {PRIORITY_VALUES.map((v) => (
+                  <option key={v} value={v}>
+                    {v === "none" ? t.word.priority : `${t.word.priority} · ${t.priority[v]}`}
                   </option>
                 ))}
               </select>
             ) : (
               g.priority !== "none" && (
                 <span className={`dash-priopill dash-priopill--${g.priority}`}>
-                  {PRIORITY_OPTS.find((o) => o.value === g.priority)?.label}优先级
+                  {t.priorityTag(t.priority[g.priority])}
                 </span>
               )
             )}
@@ -507,7 +517,7 @@ function GoalCard(props: {
                 className={`dash-date${g.dueDate ? " has-value" : ""}`}
                 type="date"
                 value={g.dueDate}
-                aria-label="截止日期"
+                aria-label={t.dueDateAria}
                 onChange={(e) => props.onPatch({ dueDate: e.currentTarget.value })}
               />
             ) : (
@@ -527,7 +537,6 @@ function GoalCard(props: {
 // --- One board column ------------------------------------------------------
 function GoalColumn(props: {
   cadence: GoalCadence
-  label: string
   rows: DashboardGoal[]
   canWrite: boolean
   // When a sort is active, within-column position is sort-determined: a drop
@@ -545,7 +554,8 @@ function GoalColumn(props: {
   onDropHint: (target: DropTarget) => void
   onDrop: () => void
 }) {
-  const { cadence, label, rows, canWrite, sorted, draggingId, focusGoalId, drop } = props
+  const t = useStrings()
+  const { cadence, rows, canWrite, sorted, draggingId, focusGoalId, drop } = props
   const isActive = drop?.cadence === cadence
   const dropLine = (beforeId: string | null) =>
     !sorted && isActive && drop?.beforeId === beforeId ? <div className="dash-drop-line" /> : null
@@ -572,7 +582,7 @@ function GoalColumn(props: {
       }
     >
       <div className="dash-col__head">
-        <span className="dash-col__title">{label}</span>
+        <span className="dash-col__title">{t.cadence[cadence]}</span>
         <span className="dash-col__count">{rows.length}</span>
       </div>
       <div className="dash-col__body">
@@ -601,14 +611,14 @@ function GoalColumn(props: {
         {dropLine(null)}
         {rows.length === 0 &&
           (props.filterActive ? (
-            <p className="dash-empty">无匹配目标</p>
+            <p className="dash-empty">{t.noMatch}</p>
           ) : (
-            !canWrite && <p className="dash-empty">还没有目标。</p>
+            !canWrite && <p className="dash-empty">{t.noGoals}</p>
           ))}
       </div>
       {canWrite && (
         <button className="dash-col__add" onClick={() => props.onAdd(cadence)}>
-          + 添加
+          {t.addGoal}
         </button>
       )}
     </div>
@@ -626,6 +636,7 @@ function GoalsSection(props: {
   setView: (partial: Partial<DashboardView>) => void
   onAddGoal: (cadence: GoalCadence) => void
 }) {
+  const t = useStrings()
   const { goals, view, canWrite, focusGoalId } = props
   // Drag state lives in refs (read synchronously by the drop handler — the
   // native `drop` event fires right after `dragover`, before React would have
@@ -643,9 +654,9 @@ function GoalsSection(props: {
     dragIdRef.current = id
     setDraggingId(id)
   }
-  const hintDrop = (t: DropTarget) => {
-    dropRef.current = t
-    setDrop(t)
+  const hintDrop = (target: DropTarget) => {
+    dropRef.current = target
+    setDrop(target)
   }
   const endDrag = () => {
     dragIdRef.current = null
@@ -655,8 +666,8 @@ function GoalsSection(props: {
   }
   const handleDrop = () => {
     const id = dragIdRef.current
-    const t = dropRef.current
-    if (id && t) props.setGoals((gs) => moveGoal(gs, id, t.cadence, t.beforeId))
+    const target = dropRef.current
+    if (id && target) props.setGoals((gs) => moveGoal(gs, id, target.cadence, target.beforeId))
     endDrag()
   }
 
@@ -669,12 +680,12 @@ function GoalsSection(props: {
   return (
     <section className="dash-section">
       <div className="dash-section__head dash-section__head--board">
-        <h2>目标</h2>
+        <h2>{t.goalsTitle}</h2>
         {canWrite && (
           <div className="dash-board-toolbar">
             <select
               className="dash-vselect"
-              aria-label="按状态筛选"
+              aria-label={t.filterStatusAria}
               value={view.filterStatus}
               onChange={(e) =>
                 props.setView({
@@ -682,16 +693,14 @@ function GoalsSection(props: {
                 })
               }
             >
-              <option value="all">状态 · 全部</option>
-              {STATUS_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  状态 · {o.label}
-                </option>
+              <option value="all">{`${t.word.status} · ${t.word.all}`}</option>
+              {STATUS_VALUES.map((v) => (
+                <option key={v} value={v}>{`${t.word.status} · ${t.status[v]}`}</option>
               ))}
             </select>
             <select
               className="dash-vselect"
-              aria-label="按优先级筛选"
+              aria-label={t.filterPriorityAria}
               value={view.filterPriority}
               onChange={(e) =>
                 props.setView({
@@ -699,53 +708,48 @@ function GoalsSection(props: {
                 })
               }
             >
-              <option value="all">优先级 · 全部</option>
-              <option value="high">优先级 · 高</option>
-              <option value="mid">优先级 · 中</option>
-              <option value="low">优先级 · 低</option>
-              <option value="none">优先级 · 无</option>
+              <option value="all">{`${t.word.priority} · ${t.word.all}`}</option>
+              <option value="high">{`${t.word.priority} · ${t.priority.high}`}</option>
+              <option value="mid">{`${t.word.priority} · ${t.priority.mid}`}</option>
+              <option value="low">{`${t.word.priority} · ${t.priority.low}`}</option>
+              <option value="none">{`${t.word.priority} · ${t.word.none}`}</option>
             </select>
             <select
               className="dash-vselect"
-              aria-label="按标签筛选"
+              aria-label={t.filterTagAria}
               value={view.filterTag}
               onChange={(e) => props.setView({ filterTag: e.currentTarget.value })}
             >
-              <option value="">标签 · 全部</option>
+              <option value="">{`${t.word.tag} · ${t.word.all}`}</option>
               {/* A previously-set tag filter may no longer exist on any goal;
                   keep it as an option so the select still shows it. */}
               {!allTags.includes(view.filterTag) && view.filterTag !== "" && (
-                <option value={view.filterTag}>标签 · #{view.filterTag}</option>
+                <option value={view.filterTag}>{`${t.word.tag} · #${view.filterTag}`}</option>
               )}
-              {allTags.map((t) => (
-                <option key={t} value={t}>
-                  标签 · #{t}
-                </option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>{`${t.word.tag} · #${tag}`}</option>
               ))}
             </select>
             <select
               className="dash-vselect"
-              aria-label="排序"
+              aria-label={t.sortAria}
               value={view.sort}
               onChange={(e) =>
                 props.setView({ sort: e.currentTarget.value as DashboardView["sort"] })
               }
             >
-              {SORT_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  排序 · {o.label}
-                </option>
+              {SORT_VALUES.map((v) => (
+                <option key={v} value={v}>{`${t.word.sort} · ${t.sortKey[v]}`}</option>
               ))}
             </select>
           </div>
         )}
       </div>
       <div className="dash-board">
-        {GOAL_GROUPS.map(({ cadence, label }) => (
+        {GOAL_CADENCES.map((cadence) => (
           <GoalColumn
             key={cadence}
             cadence={cadence}
-            label={label}
             rows={sortGoals(
               visible.filter((g) => (g.cadence ?? "main") === cadence),
               view.sort,
@@ -771,8 +775,8 @@ function GoalsSection(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Section: 健康 — live Apple Health metrics, pushed from an iOS Shortcut to
-// the bridge (POST /api/metrics/health) and fetched back here for the charts.
+// Health — live Apple Health metrics, pushed from an iOS Shortcut to the
+// bridge (POST /api/metrics/health) and fetched back here for the charts.
 // ---------------------------------------------------------------------------
 interface HealthSample {
   date: string
@@ -784,13 +788,12 @@ interface HealthSample {
 
 const HEALTH_MINI_METRICS: Array<{
   key: "steps" | "sleepHours" | "restingHR"
-  label: string
   unit: string
   digits: number
 }> = [
-  { key: "steps", label: "步数", unit: "", digits: 0 },
-  { key: "sleepHours", label: "睡眠", unit: "h", digits: 1 },
-  { key: "restingHR", label: "静息心率", unit: "bpm", digits: 0 },
+  { key: "steps", unit: "", digits: 0 },
+  { key: "sleepHours", unit: "h", digits: 1 },
+  { key: "restingHR", unit: "bpm", digits: 0 },
 ]
 
 const r1 = (n: number): number => Math.round(n * 10) / 10
@@ -875,18 +878,15 @@ function TrendChart(props: { values: number[]; height: number; fill?: boolean })
 }
 
 function HealthSection(props: { samples: HealthSample[] | null; error: string | null }) {
+  const t = useStrings()
   const { samples, error } = props
 
   if (error || samples === null || samples.length === 0) {
     return (
       <section className="dash-section">
-        <h2>健康</h2>
+        <h2>{t.healthTitle}</h2>
         <p className="dash-empty">
-          {error
-            ? `无法读取健康数据:${error}。`
-            : samples === null
-              ? "加载健康数据中…"
-              : "还没有健康数据。在 iPhone 上用「快捷指令」把体重等数据 POST 到 bridge 的 /api/metrics/health,刷新后即可在这里看到趋势。"}
+          {error ? t.healthError(error) : samples === null ? t.healthLoading : t.healthEmpty}
         </p>
       </section>
     )
@@ -902,11 +902,11 @@ function HealthSection(props: { samples: HealthSample[] | null; error: string | 
 
   return (
     <section className="dash-section">
-      <h2>健康</h2>
+      <h2>{t.healthTitle}</h2>
 
       <div className="dash-health__hero">
         <div className="dash-health__hero-head">
-          <span className="dash-health__label">体重</span>
+          <span className="dash-health__label">{t.weight}</span>
           {wLatest != null ? (
             <>
               <span className="dash-health__value">
@@ -934,7 +934,7 @@ function HealthSection(props: { samples: HealthSample[] | null; error: string | 
           const latest = vals[vals.length - 1]
           return (
             <div className="dash-health__card" key={m.key}>
-              <div className="dash-health__label">{m.label}</div>
+              <div className="dash-health__label">{t.healthMetrics[m.key]}</div>
               <div className="dash-health__value dash-health__value--sm">
                 {latest != null ? (
                   <>
@@ -960,26 +960,25 @@ function HealthSection(props: { samples: HealthSample[] | null; error: string | 
 }
 
 // ---------------------------------------------------------------------------
-// Section: 财务 (read-only view of the latest weekly finance report)
+// Finance — read-only view of the latest weekly finance report.
 // ---------------------------------------------------------------------------
 function FinanceSection(props: { finance: Aggregate["finance"] }) {
+  const t = useStrings()
   const fin = props.finance
   const d = fin?.data
   if (fin?.error) {
     return (
       <section className="dash-section">
-        <h2>财务</h2>
-        <p className="dash-empty">财务文件解析失败:{fin.error}</p>
+        <h2>{t.financeTitle}</h2>
+        <p className="dash-empty">{t.financeParseError(fin.error)}</p>
       </section>
     )
   }
   if (!d) {
     return (
       <section className="dash-section">
-        <h2>财务</h2>
-        <p className="dash-empty">
-          在 <code>content/.finance/</code> 放一份周报 JSON 即可显示。
-        </p>
+        <h2>{t.financeTitle}</h2>
+        <p className="dash-empty">{t.financeNoData}</p>
       </section>
     )
   }
@@ -994,16 +993,20 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
   const alerts: any[] = Array.isArray(d.alerts) ? d.alerts : []
 
   const stats: Array<{ label: string; value: string; tone?: string }> = [
-    { label: "现金 + 存款", value: money(acct?.cash_and_deposits?.total) },
-    { label: "信用卡欠款", value: money(acct?.credit_cards?.total_current_balance), tone: "warn" },
-    { label: "净现金", value: money(acct?.net_cash_after_credit_card_balances), tone: "good" },
-    { label: "本周可控支出", value: money(sum?.controllable_spend_estimate) },
+    { label: t.financeCash, value: money(acct?.cash_and_deposits?.total) },
+    {
+      label: t.financeCredit,
+      value: money(acct?.credit_cards?.total_current_balance),
+      tone: "warn",
+    },
+    { label: t.financeNet, value: money(acct?.net_cash_after_credit_card_balances), tone: "good" },
+    { label: t.financeControllable, value: money(sum?.controllable_spend_estimate) },
   ]
 
   return (
     <section className="dash-section">
       <div className="dash-section__head">
-        <h2>财务</h2>
+        <h2>{t.financeTitle}</h2>
         {period?.label && (
           <span className="dash-tag">
             {period.label} · {fin?.file}
@@ -1021,10 +1024,10 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
 
       {Object.keys(targets).length > 0 && (
         <div className="dash-sub">
-          <h3>周预算达成</h3>
-          {Object.entries<any>(targets).map(([key, t]) => {
-            const actual = Number(t?.actual ?? 0)
-            const target = Number(t?.target ?? 0)
+          <h3>{t.financeBudget}</h3>
+          {Object.entries<any>(targets).map(([key, tp]) => {
+            const actual = Number(tp?.actual ?? 0)
+            const target = Number(tp?.target ?? 0)
             const pct = target > 0 ? clampPct((actual / target) * 100) : 0
             const over = target > 0 && actual > target
             return (
@@ -1047,7 +1050,7 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
 
       {charges.length > 0 && (
         <div className="dash-sub">
-          <h3>即将到来的订阅</h3>
+          <h3>{t.financeCharges}</h3>
           <ul className="dash-list">
             {charges.slice(0, 6).map((c, idx) => (
               <li key={idx}>
@@ -1063,7 +1066,7 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
 
       {alerts.length > 0 && (
         <div className="dash-sub">
-          <h3>提醒</h3>
+          <h3>{t.financeAlerts}</h3>
           <ul className="dash-alerts">
             {alerts.map((a, idx) => (
               <li className={`dash-alert dash-alert--${a?.severity ?? "info"}`} key={idx}>
@@ -1078,8 +1081,8 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section: 自定义指标卡 — in-place editable (label / value / unit / note are
-// editable text fields). Adding a card appends an empty editable tile.
+// Custom metrics — in-place editable (label / value / unit / note are editable
+// text fields). Adding a card appends an empty editable tile.
 // ---------------------------------------------------------------------------
 const TREND_GLYPH: Record<string, string> = { up: "▲", down: "▼", flat: "▬", none: "" }
 
@@ -1090,6 +1093,7 @@ function MetricsSection(props: {
   setMetrics: (mutate: (metrics: DashboardMetric[]) => DashboardMetric[]) => void
   onAddMetric: () => void
 }) {
+  const t = useStrings()
   const { metrics, canWrite, focusMetricId } = props
 
   const patchMetric = (id: string, partial: Partial<DashboardMetric>) =>
@@ -1099,14 +1103,14 @@ function MetricsSection(props: {
   return (
     <section className="dash-section">
       <div className="dash-section__head">
-        <h2>自定义指标</h2>
+        <h2>{t.metricsTitle}</h2>
         {canWrite && (
           <button className="dash-btn" onClick={props.onAddMetric}>
-            + 添加指标
+            {t.addMetric}
           </button>
         )}
       </div>
-      {metrics.length === 0 && <p className="dash-empty">还没有指标卡。</p>}
+      {metrics.length === 0 && <p className="dash-empty">{t.metricsEmpty}</p>}
       <div className="dash-stats">
         {metrics.map((m) => (
           <div className="dash-stat dash-stat--metric" key={m.id}>
@@ -1114,7 +1118,7 @@ function MetricsSection(props: {
               <>
                 <button
                   className="dash-goal__remove dash-stat__remove"
-                  title="删除指标"
+                  title={t.removeMetric}
                   onClick={() => removeMetric(m.id)}
                 >
                   ✕
@@ -1124,14 +1128,14 @@ function MetricsSection(props: {
                     className="dash-stat__value-input"
                     value={m.value}
                     placeholder="—"
-                    ariaLabel="指标值"
+                    ariaLabel={t.metricValueAria}
                     onCommit={(value) => patchMetric(m.id, { value })}
                   />
                   <EditableField
                     className="dash-stat__unit-input"
                     value={m.unit}
-                    placeholder="单位"
-                    ariaLabel="单位"
+                    placeholder={t.metricUnitPlaceholder}
+                    ariaLabel={t.metricUnitAria}
                     onCommit={(unit) => patchMetric(m.id, { unit })}
                   />
                   {m.trend !== "none" && (
@@ -1143,16 +1147,16 @@ function MetricsSection(props: {
                 <EditableField
                   className="dash-stat__label-input"
                   value={m.label}
-                  placeholder="指标名称"
-                  ariaLabel="指标名称"
+                  placeholder={t.metricLabelPlaceholder}
+                  ariaLabel={t.metricLabelAria}
                   focusOnMount={m.id === focusMetricId}
                   onCommit={(label) => patchMetric(m.id, { label })}
                 />
                 <EditableField
                   className="dash-stat__note-input"
                   value={m.note}
-                  placeholder="备注…"
-                  ariaLabel="指标备注"
+                  placeholder={t.notePlaceholder}
+                  ariaLabel={t.metricNoteAria}
                   onCommit={(note) => patchMetric(m.id, { note })}
                 />
               </>
@@ -1179,20 +1183,21 @@ function MetricsSection(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Section: Workflow 运行状态
+// Workflows — run status of the content-tree workflows.
 // ---------------------------------------------------------------------------
 function WorkflowsSection(props: { workflows: Aggregate["workflows"] }) {
+  const t = useStrings()
   const wfs = props.workflows ?? []
   return (
     <section className="dash-section">
-      <h2>Workflow 运行状态</h2>
-      {wfs.length === 0 && <p className="dash-empty">未发现 workflow。</p>}
+      <h2>{t.workflowsTitle}</h2>
+      {wfs.length === 0 && <p className="dash-empty">{t.workflowsEmpty}</p>}
       <div className="dash-cards">
         {wfs.map((w) => (
           <a className="dash-card" href={`/${w.slug}`} key={w.slug}>
             <div className="dash-card__title">{w.name}</div>
             <div className="dash-card__meta">
-              <span>{w.runCount} 次运行</span>
+              <span>{t.runCount(w.runCount)}</span>
               {w.latestStatus && (
                 <span className={`dash-pill dash-pill--${w.latestStatus}`}>{w.latestStatus}</span>
               )}
@@ -1205,18 +1210,19 @@ function WorkflowsSection(props: { workflows: Aggregate["workflows"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section: Thoughts / Diary 活动
+// Thoughts / Diary activity.
 // ---------------------------------------------------------------------------
 function ThoughtsSection(props: { thoughts: Aggregate["thoughts"] }) {
-  const t = props.thoughts ?? {}
-  const recent = t.recent ?? []
+  const t = useStrings()
+  const th = props.thoughts ?? {}
+  const recent = th.recent ?? []
   return (
     <section className="dash-section">
       <div className="dash-section__head">
-        <h2>Thoughts / Diary 活动</h2>
-        <span className="dash-tag">共 {t.total ?? 0} 条</span>
+        <h2>{t.thoughtsTitle}</h2>
+        <span className="dash-tag">{t.thoughtsCount(th.total ?? 0)}</span>
       </div>
-      {recent.length === 0 && <p className="dash-empty">暂无记录。</p>}
+      {recent.length === 0 && <p className="dash-empty">{t.thoughtsEmpty}</p>}
       <ul className="dash-list">
         {recent.map((r) => (
           <li key={r.slug}>
@@ -1232,29 +1238,26 @@ function ThoughtsSection(props: { thoughts: Aggregate["thoughts"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section: Bridge sessions / tickets
+// Bridge sessions / tickets.
 // ---------------------------------------------------------------------------
 function BridgeSection(props: { bridge: Aggregate["bridge"] }) {
+  const t = useStrings()
   const b = props.bridge ?? {}
   const sessions = b.sessions ?? []
   const tickets = b.tickets ?? []
   return (
     <section className="dash-section">
       <div className="dash-section__head">
-        <h2>Bridge</h2>
+        <h2>{t.bridgeTitle}</h2>
         <span className={`dash-pill dash-pill--${b.ok ? "ok" : "error"}`}>
-          {b.ok ? "在线" : "离线"}
+          {b.ok ? t.bridgeOnline : t.bridgeOffline}
         </span>
       </div>
-      {!b.ok && (
-        <p className="dash-empty">
-          无法连接 bridge ({b.origin}){b.error ? ` — ${b.error}` : ""}。
-        </p>
-      )}
+      {!b.ok && <p className="dash-empty">{t.bridgeConnError(b.origin ?? "", b.error ?? "")}</p>}
       {b.ok && (
         <div className="dash-bridge">
           <div className="dash-sub">
-            <h3>Sessions ({sessions.length})</h3>
+            <h3>{t.bridgeSessions(sessions.length)}</h3>
             <ul className="dash-list">
               {sessions.map((s: any, idx: number) => (
                 <li key={s?.sessionId ?? idx}>
@@ -1264,21 +1267,21 @@ function BridgeSection(props: { bridge: Aggregate["bridge"] }) {
                   <span className="dash-list__meta">{s?.state ?? s?.detectorState}</span>
                 </li>
               ))}
-              {sessions.length === 0 && <li className="dash-empty">无活跃 session</li>}
+              {sessions.length === 0 && <li className="dash-empty">{t.bridgeNoSessions}</li>}
             </ul>
           </div>
           <div className="dash-sub">
-            <h3>Tickets ({tickets.length})</h3>
+            <h3>{t.bridgeTickets(tickets.length)}</h3>
             <ul className="dash-list">
-              {tickets.slice(0, 8).map((t: any, idx: number) => (
-                <li key={t?.id ?? idx}>
-                  <span className="dash-list__main">{t?.summary || t?.title || t?.id}</span>
-                  <span className={`dash-pill dash-pill--${t?.status ?? "open"}`}>
-                    {t?.status ?? "—"}
+              {tickets.slice(0, 8).map((tk: any, idx: number) => (
+                <li key={tk?.id ?? idx}>
+                  <span className="dash-list__main">{tk?.summary || tk?.title || tk?.id}</span>
+                  <span className={`dash-pill dash-pill--${tk?.status ?? "open"}`}>
+                    {tk?.status ?? "—"}
                   </span>
                 </li>
               ))}
-              {tickets.length === 0 && <li className="dash-empty">无 ticket</li>}
+              {tickets.length === 0 && <li className="dash-empty">{t.bridgeNoTickets}</li>}
             </ul>
           </div>
         </div>
@@ -1305,10 +1308,23 @@ function Dashboard(props: {
   // Persistence is silent (no save badge). A failed write is the only thing
   // worth surfacing — shown briefly, then the optimistic change is rolled back.
   const [writeErr, setWriteErr] = useState<string | null>(null)
-  // The goal / metric a "+ 添加" click just created, so its first field can
+  // The goal / metric a "+ add" click just created, so its first field can
   // grab focus on mount.
   const [focusGoalId, setFocusGoalId] = useState<string | null>(null)
   const [focusMetricId, setFocusMetricId] = useState<string | null>(null)
+
+  // Display locale comes from the global chrome toggle — track it in state so
+  // the panel re-renders when the user switches language.
+  const [locale, setLocale] = useState<DashLocale>(readGlobalLocale)
+  useEffect(() => {
+    const onLangChange = (e: Event) => {
+      const lang = (e as CustomEvent<{ lang?: string }>).detail?.lang
+      if (lang === "en-US" || lang === "zh-CN") setLocale(lang)
+    }
+    document.addEventListener("langchange", onLangChange)
+    return () => document.removeEventListener("langchange", onLangChange)
+  }, [])
+  const t = useMemo(() => getStrings(locale), [locale])
 
   // dataRef mirrors `data` synchronously so successive edits in the same tick
   // (e.g. blur-commit of a field immediately followed by another action)
@@ -1319,7 +1335,7 @@ function Dashboard(props: {
   const lastSaved = useRef<DashboardData>(props.initialData)
   // Writes coalesce: edits mark top-level keys dirty, a debounced flush sends
   // ONE request, and only one request is ever in flight. Without this, a
-  // "+ 添加" write and the title-edit write that immediately follows it each
+  // "+ add" write and the title-edit write that immediately follows it each
   // send a full /goals snapshot — last-write-wins would clobber the title.
   const dirty = useRef<Set<keyof DashboardData>>(new Set())
   const inFlight = useRef(false)
@@ -1344,7 +1360,7 @@ function Dashboard(props: {
   // without waiting for a site rebuild.
   const loadHealth = useCallback(async () => {
     if (!bridgeOrigin) {
-      setHealthErr("bridge 未配置")
+      setHealthErr("bridge unavailable")
       return
     }
     try {
@@ -1366,19 +1382,16 @@ function Dashboard(props: {
   }, [loadAggregate, loadHealth])
 
   // Flush the dirty top-level keys in ONE write. Each key is sent as a whole
-  // `replace /<key>` of its freshest value (dataRef) — an idempotent,
-  // index-free patch, so added/removed rows never desync from array indices.
-  // Serialized: if a write is already in flight, this no-ops and the
-  // in-flight write re-flushes on completion. On failure, roll back to the
-  // last server-confirmed state and surface the error briefly.
+  // `add /<key>` of its freshest value (dataRef) — an idempotent, index-free
+  // patch (`add` sets-or-replaces an object member, so a key absent from an
+  // older data.json is created rather than erroring). Serialized: if a write
+  // is already in flight, this no-ops and the in-flight write re-flushes on
+  // completion. On failure, roll back to the last server-confirmed state.
   const flush = useCallback(() => {
     if (inFlight.current || dirty.current.size === 0) return
     const keys = [...dirty.current]
     dirty.current.clear()
     const snapshot = dataRef.current
-    // `add` on an object member sets-or-replaces it (JSON Patch semantics),
-    // so a top-level key that didn't exist yet (e.g. `view` in an older
-    // data.json) is created rather than erroring like `replace` would.
     const patch: JsonPatchOp[] = keys.map((k) => ({
       op: "add",
       path: `/${k}`,
@@ -1394,7 +1407,7 @@ function Dashboard(props: {
         dirty.current.clear()
         dataRef.current = lastSaved.current
         setData(lastSaved.current)
-        setWriteErr(r.error?.message ?? "保存失败")
+        setWriteErr(r.error?.message ?? "save failed")
         clearTimeout(errTimer.current)
         errTimer.current = setTimeout(() => setWriteErr(null), 4000)
       }
@@ -1434,7 +1447,6 @@ function Dashboard(props: {
       commit((cur) => ({ ...cur, view: { ...cur.view, ...partial } }), ["view"]),
     [commit],
   )
-
   const addGoal = useCallback(
     (cadence: GoalCadence) => {
       const goal: DashboardGoal = {
@@ -1467,53 +1479,57 @@ function Dashboard(props: {
   }, [setMetrics])
 
   return (
-    <div className="dashboard">
-      {/* A plain div, not <header> — Quartz's content CSS gives the <header>
-          element a 2rem block margin, which bloated this row. */}
-      <div className="dash-header">
-        <p className="dash-subtitle">
-          {agg?.generatedAt
-            ? `数据更新于 ${new Date(agg.generatedAt).toLocaleString()}`
-            : "加载聚合数据中…"}
-        </p>
-        <div className="dash-header__actions">
-          {writeErr && <span className="dash-save dash-save--error">保存失败:{writeErr}</span>}
-          <button
-            className="dash-btn"
-            onClick={() => {
-              void loadAggregate()
-              void loadHealth()
-            }}
-          >
-            ↻ 刷新
-          </button>
+    <StringsContext.Provider value={t}>
+      <div className="dashboard">
+        {/* A plain div, not <header> — Quartz's content CSS gives the <header>
+            element a 2rem block margin, which bloated this row. */}
+        <div className="dash-header">
+          <p className="dash-subtitle">
+            {agg?.generatedAt
+              ? t.updatedAt(new Date(agg.generatedAt).toLocaleString())
+              : t.loadingAggregate}
+          </p>
+          <div className="dash-header__actions">
+            {writeErr && (
+              <span className="dash-save dash-save--error">{t.saveFailed(writeErr)}</span>
+            )}
+            <button
+              className="dash-btn"
+              onClick={() => {
+                void loadAggregate()
+                void loadHealth()
+              }}
+            >
+              ↻ {t.refresh}
+            </button>
+          </div>
         </div>
+
+        {aggErr && <p className="dash-empty">{t.aggError(aggErr)}</p>}
+
+        <GoalsSection
+          goals={data.goals}
+          view={data.view}
+          canWrite={canWrite}
+          focusGoalId={focusGoalId}
+          setGoals={setGoals}
+          setView={setView}
+          onAddGoal={addGoal}
+        />
+        <HealthSection samples={health} error={healthErr} />
+        <FinanceSection finance={agg?.finance} />
+        <MetricsSection
+          metrics={data.metrics}
+          canWrite={canWrite}
+          focusMetricId={focusMetricId}
+          setMetrics={setMetrics}
+          onAddMetric={addMetric}
+        />
+        <WorkflowsSection workflows={agg?.workflows} />
+        <ThoughtsSection thoughts={agg?.thoughts} />
+        <BridgeSection bridge={agg?.bridge} />
       </div>
-
-      {aggErr && <p className="dash-empty">聚合数据加载失败:{aggErr}(站点重建后会自动生成)。</p>}
-
-      <GoalsSection
-        goals={data.goals}
-        view={data.view}
-        canWrite={canWrite}
-        focusGoalId={focusGoalId}
-        setGoals={setGoals}
-        setView={setView}
-        onAddGoal={addGoal}
-      />
-      <HealthSection samples={health} error={healthErr} />
-      <FinanceSection finance={agg?.finance} />
-      <MetricsSection
-        metrics={data.metrics}
-        canWrite={canWrite}
-        focusMetricId={focusMetricId}
-        setMetrics={setMetrics}
-        onAddMetric={addMetric}
-      />
-      <WorkflowsSection workflows={agg?.workflows} />
-      <ThoughtsSection thoughts={agg?.thoughts} />
-      <BridgeSection bridge={agg?.bridge} />
-    </div>
+    </StringsContext.Provider>
   )
 }
 

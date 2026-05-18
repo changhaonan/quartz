@@ -3,6 +3,7 @@ import { getBlockWidgetRuntime, BlockWidget, WidgetCtx } from "./block-widget-ru
 // toolbars on pages that opt in via frontmatter `blocks: true`.
 import "./block-toolbar.inline"
 import "./pdf-viewer.inline"
+import { aiSidebarStrings } from "./aiSidebar-i18n"
 
 type BridgeHealth = {
   ok?: boolean
@@ -1697,10 +1698,35 @@ function bindAiSidebarInteractions() {
   }
 }
 
+// Apply the global display locale (<html data-lang>, set by the chrome's
+// language toggle) to the AI sidebar's SSR'd chrome — swaps [data-i18n*] text.
+// Re-run on nav (SPA re-render) and on `langchange` (toggle clicked).
+function applyAiSidebarI18n(): void {
+  const tbl = aiSidebarStrings(document.documentElement.getAttribute("data-lang"))
+  for (const el of document.querySelectorAll<HTMLElement>(".ai-sidebar [data-i18n]")) {
+    const k = el.getAttribute("data-i18n")
+    if (k && tbl[k] !== undefined) el.textContent = tbl[k]
+  }
+  for (const el of document.querySelectorAll<HTMLElement>(".ai-sidebar [data-i18n-placeholder]")) {
+    const k = el.getAttribute("data-i18n-placeholder")
+    if (k && tbl[k] !== undefined) el.setAttribute("placeholder", tbl[k])
+  }
+  for (const el of document.querySelectorAll<HTMLElement>(".ai-sidebar [data-i18n-label]")) {
+    const k = el.getAttribute("data-i18n-label")
+    if (k && tbl[k] !== undefined) {
+      el.setAttribute("title", tbl[k])
+      el.setAttribute("aria-label", tbl[k])
+    }
+  }
+}
+
+document.addEventListener("langchange", applyAiSidebarI18n)
+
 document.addEventListener("nav", () => {
   ensureGlobalAiHost()
   bindAiSidebarInteractions()
   hydrateBridgeSidebars()
+  applyAiSidebarI18n()
   getBlockWidgetRuntime().attachAll()
 })
 
@@ -1715,6 +1741,7 @@ const startAiSidebar = () => {
   ensureGlobalAiHost()
   bindAiSidebarInteractions()
   hydrateBridgeSidebars()
+  applyAiSidebarI18n()
   ensureSidebarEventStream()
 }
 

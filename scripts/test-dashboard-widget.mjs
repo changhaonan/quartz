@@ -42,15 +42,9 @@ try {
   const headings = await page.$$eval(".dash-section h2", (els) =>
     els.map((e) => e.textContent.trim()),
   )
-  for (const want of [
-    "目标",
-    "财务",
-    "自定义指标",
-    "Workflow 运行状态",
-    "Thoughts / Diary 活动",
-    "Bridge",
-  ]) {
-    if (!headings.some((h) => h.includes(want.split(" ")[0]))) {
+  // Default locale is zh-CN — headings are the Chinese i18n strings.
+  for (const want of ["目标", "财务", "自定义指标", "工作流", "想法", "Bridge"]) {
+    if (!headings.some((h) => h.includes(want))) {
       fail(`section "${want}" missing — got: ${headings.join(", ")}`)
     }
   }

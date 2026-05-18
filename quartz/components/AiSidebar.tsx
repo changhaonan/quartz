@@ -45,12 +45,14 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
     >
       <div class="ai-sidebar__header">
         <div>
-          <p class="ai-sidebar__eyebrow">Jarvis Workspace</p>
-          <strong>Document operator</strong>
+          <p class="ai-sidebar__eyebrow" data-i18n="eyebrow">
+            Jarvis Workspace
+          </p>
+          <strong data-i18n="headerTitle">Document operator</strong>
         </div>
         <div class="ai-sidebar__header-actions">
           <label class="ai-sidebar__client-picker">
-            <span>Client</span>
+            <span data-i18n="clientLabel">Client</span>
             <select data-ai-client-select aria-label="Jarvis client">
               <option value="codex" selected={agent === "codex"}>
                 Codex
@@ -73,6 +75,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
             type="button"
             class="ai-sidebar__icon-button"
             data-ai-action="refresh"
+            data-i18n-label="refreshBridge"
             title="Refresh bridge state"
             aria-label="Refresh bridge state"
           >
@@ -82,15 +85,15 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
       </div>
       <dl class="ai-sidebar__facts">
         <div>
-          <dt>Workspace</dt>
+          <dt data-i18n="factWorkspace">Workspace</dt>
           <dd data-ai-fact="workspace">{workspaceId ?? "quartz-site"}</dd>
         </div>
         <div>
-          <dt>Role</dt>
+          <dt data-i18n="factRole">Role</dt>
           <dd data-ai-fact="role">{role ?? "none"}</dd>
         </div>
         <div>
-          <dt>State</dt>
+          <dt data-i18n="factState">State</dt>
           <dd data-ai-fact="state">{stateDir ?? "not declared"}</dd>
         </div>
       </dl>
@@ -101,19 +104,32 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
         </div>
         <div class="ai-sidebar__bridge-meta">Looking for embedded bridge frames.</div>
         <div class="ai-sidebar__runtime-meta">Runtime manifest pending.</div>
-        <a class="ai-sidebar__bridge-link" href="#" target="_blank" rel="noreferrer">
+        <a
+          class="ai-sidebar__bridge-link"
+          href="#"
+          target="_blank"
+          rel="noreferrer"
+          data-i18n="openBridge"
+        >
           Open bridge
         </a>
       </div>
       <section class="ai-sidebar__terminal-shell" aria-label="PTY session">
         <div class="ai-sidebar__terminal-header">
-          <strong>PTY Session</strong>
-          <button type="button" class="ai-sidebar__secondary-button" data-ai-action="start-pty">
+          <strong data-i18n="ptySession">PTY Session</strong>
+          <button
+            type="button"
+            class="ai-sidebar__secondary-button"
+            data-ai-action="start-pty"
+            data-i18n="startPty"
+          >
             Start PTY
           </button>
         </div>
         <div class="ai-sidebar__terminal-frame" data-ai-terminal>
-          <span>Start a PTY to attach an interactive Xterm session.</span>
+          <span data-i18n="terminalPlaceholder">
+            Start a PTY to attach an interactive Xterm session.
+          </span>
         </div>
       </section>
       <div class="ai-sidebar__status" data-ai-status aria-live="polite">
@@ -125,27 +141,33 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
           name="prompt"
           rows={5}
           placeholder="Ask about this workspace..."
+          data-i18n-placeholder="composerPlaceholder"
         ></textarea>
         <div class="ai-sidebar__composer-actions">
-          <button type="submit" class="ai-sidebar__primary-button">
+          <button type="submit" class="ai-sidebar__primary-button" data-i18n="send">
             Send
           </button>
-          <button type="button" class="ai-sidebar__secondary-button" data-ai-action="summarize">
+          <button
+            type="button"
+            class="ai-sidebar__secondary-button"
+            data-ai-action="summarize"
+            data-i18n="summarize"
+          >
             Summarize
           </button>
         </div>
       </form>
       <div class="ai-sidebar__actions" aria-label="Jarvis sidebar actions">
-        <button type="button" data-ai-action="ai-read">
+        <button type="button" data-ai-action="ai-read" data-i18n="jarvisRead">
           Jarvis Read
         </button>
-        <button type="button" data-ai-action="create-file">
+        <button type="button" data-ai-action="create-file" data-i18n="createFile">
           Create file
         </button>
-        <button type="button" data-ai-action="run-block">
+        <button type="button" data-ai-action="run-block" data-i18n="startPty">
           Start PTY
         </button>
-        <button type="button" data-ai-action="append-run">
+        <button type="button" data-ai-action="append-run" data-i18n="appendRun">
           Append run
         </button>
       </div>
