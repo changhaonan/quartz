@@ -26,31 +26,13 @@ scope.
 - Each component owns its own string table (its strings are distinct);
   only the locale value + event are shared.
 
-## Task #2 — AI sidebar runtime strings  (RISK: HIGH)
+## Descoped — AI sidebar runtime strings
 
-`quartz/components/scripts/bridge-client.inline.ts` — 1762 lines, the live
-PTY/bridge runtime. A mistake breaks PTY sessions, so go section by section
-and rebuild + smoke-test after each.
-
-1. **Inventory** the user-visible runtime strings, in categories:
-   - _State-driven, persistent_: bridge status (`probing`/`online`/`offline`),
-     `data-ai-status` line, `.ai-sidebar__bridge-meta`, `.__runtime-meta`.
-   - _Transient_: "Saving…", "Reading…", "…".
-   - _AI-comment widget chrome_: "Reply… (Enter to send…)", "Dismiss",
-     "★ to ask Jarvis · 💬 to add your own note on this page".
-   - _Interpolated_: `PTY session ${id}`, `${agent} PTY ready for …` →
-     these become functions in the table.
-2. Extend `aiSidebar-i18n.ts` with these keys / functions.
-3. Add a `lang()` accessor in the script; pull strings from the table at
-   each assignment site (swap the literal, do **not** touch control flow).
-4. **Re-render on `langchange`** — the hard part. State-driven elements must
-   re-derive their text from current state: factor each status setter into a
-   `render(state)` function, keep the last state in a module var, and have
-   the `langchange` handler re-invoke the setters. Transient strings need no
-   re-render (they flash).
-5. Verify: AI-sidebar chrome probe still passes; `npm run test:e2e` (sidebar
-   PTY resume) stays green; manually exercise start-PTY / AI-comment in both
-   locales.
+Originally task #2: i18n the runtime strings in `bridge-client.inline.ts`
+(bridge status line, transient states, AI-comment chrome). **Cut** — the
+user only wants the visible widget labels translated, which the SSR chrome
+(done above) already covers. The live PTY/bridge runtime is left in English;
+not worth the risk of refactoring that 1762-line critical file.
 
 ## Task #3 — workflow widget  (RISK: LOW)
 
@@ -74,5 +56,5 @@ pattern as #3, reusing the shared `widgets/locale.ts` helper.
 
 ## Suggested order
 
-#3 → #4 → #2. Doing a low-risk widget first lets the shared
-`widgets/locale.ts` helper settle before the risky bridge-client refactor.
+#3 → #4. The first one lands the shared `widgets/locale.ts` helper; the
+second reuses it. Both are low-risk, self-contained React widgets.
