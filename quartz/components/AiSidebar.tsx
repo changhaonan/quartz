@@ -1,6 +1,7 @@
 import styles from "./styles/aiSidebar.scss"
 // @ts-ignore
 import script from "./scripts/bridge-client.inline"
+import { AI_SIDEBAR_STRINGS } from "./scripts/aiSidebar-i18n"
 import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } from "./types"
 
 // Default bridge origin baked in at server-render time. Priority:
@@ -18,6 +19,39 @@ const DEFAULT_AI_AGENT = "codex"
 const DEFAULT_CODEX_MODEL = "gpt-5.4-mini"
 const DEFAULT_AI_DIFFICULTY = "medium"
 
+// No-flash i18n. The sidebar chrome is SSR'd in English, but the global
+// language toggle (language.inline.ts — a beforeDOMLoaded <head> script)
+// has already set <html data-lang> by the time the browser parses this
+// <aside>. bridge-client.inline.ts only re-applies the locale in an
+// afterDOMLoaded script — i.e. after first paint — so a zh-CN user sees
+// the English chrome flash past on every hard load. This inline script
+// sits immediately after the sidebar markup and runs synchronously during
+// parse, swapping the [data-i18n*] strings before the browser paints.
+// bridge-client still owns re-application on `langchange` / SPA `nav`.
+const NO_FLASH_I18N = `(function(){
+  var T = ${JSON.stringify(AI_SIDEBAR_STRINGS)};
+  var s = document.currentScript;
+  var root = s && s.previousElementSibling;
+  if (!root || !root.classList || !root.classList.contains("ai-sidebar")) {
+    root = document.querySelector(".ai-sidebar");
+  }
+  if (!root) return;
+  var tbl = T[document.documentElement.getAttribute("data-lang")] || T["zh-CN"];
+  if (!tbl) return;
+  root.querySelectorAll("[data-i18n]").forEach(function(el){
+    var v = tbl[el.getAttribute("data-i18n")];
+    if (v != null) el.textContent = v;
+  });
+  root.querySelectorAll("[data-i18n-placeholder]").forEach(function(el){
+    var v = tbl[el.getAttribute("data-i18n-placeholder")];
+    if (v != null) el.setAttribute("placeholder", v);
+  });
+  root.querySelectorAll("[data-i18n-label]").forEach(function(el){
+    var v = tbl[el.getAttribute("data-i18n-label")];
+    if (v != null) { el.setAttribute("title", v); el.setAttribute("aria-label", v); }
+  });
+})();`
+
 const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const frontmatter = (fileData.frontmatter ?? {}) as Record<string, string | undefined>
   const workspaceId = frontmatter.workspaceId
@@ -31,6 +65,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
   const fileSlug = fileData.slug ?? "unknown"
 
   return (
+    <>
     <aside
       class="ai-sidebar"
       data-file-slug={fileSlug}
@@ -172,6 +207,8 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
         </button>
       </div>
     </aside>
+    <script dangerouslySetInnerHTML={{ __html: NO_FLASH_I18N }} />
+    </>
   )
 }
 
