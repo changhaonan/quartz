@@ -78,7 +78,11 @@ function money(n: unknown): string {
 
 function fmtDate(iso: unknown): string {
   if (typeof iso !== "string" || !iso) return ""
-  const d = new Date(iso)
+  // A bare YYYY-MM-DD parses as UTC midnight; toLocaleDateString then
+  // shifts it to the previous day in negative-UTC zones. Build the
+  // Date locally to preserve the intended calendar day.
+  const ymd = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  const d = ymd ? new Date(+ymd[1], +ymd[2] - 1, +ymd[3]) : new Date(iso)
   return isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString("en-CA")
 }
 
