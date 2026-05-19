@@ -133,6 +133,10 @@ export interface Strings {
   financeBudget: string
   financeCharges: string
   financeAlerts: string
+  // Friendly short label for a target_performance key (e.g.
+  // "controllable_spend" → "可控支出"). Unknown keys fall back to a
+  // humanised version of the raw key.
+  financeTargetLabel: (key: string) => string
 
   // --- custom metrics ---
   metricsTitle: string
@@ -278,6 +282,22 @@ const zhCN: Strings = {
   financeBudget: "周预算达成",
   financeCharges: "即将到来的订阅",
   financeAlerts: "提醒",
+  financeTargetLabel: (key) => {
+    const m: Record<string, string> = {
+      controllable_spend: "可控支出",
+      controllable_spend_excluding_large_one_time_purchases: "可控(剔大额)",
+      dining_delivery: "餐饮外卖",
+      dining_drinks: "餐饮",
+      shopping: "购物",
+      entertainment: "娱乐",
+      transportation: "交通",
+      groceries: "食杂",
+      ai_software: "AI 软件",
+      services: "服务订阅",
+      transfers: "转账",
+    }
+    return m[key] ?? key.replace(/_/g, " ")
+  },
 
   metricsTitle: "自定义指标",
   addMetric: "+ 添加指标",
@@ -426,6 +446,22 @@ const enUS: Strings = {
   financeBudget: "Weekly budget progress",
   financeCharges: "Upcoming subscriptions",
   financeAlerts: "Alerts",
+  financeTargetLabel: (key) => {
+    const m: Record<string, string> = {
+      controllable_spend: "Controllable",
+      controllable_spend_excluding_large_one_time_purchases: "Controllable (ex)",
+      dining_delivery: "Dining",
+      dining_drinks: "Dining",
+      shopping: "Shopping",
+      entertainment: "Entertainment",
+      transportation: "Transport",
+      groceries: "Groceries",
+      ai_software: "AI software",
+      services: "Services",
+      transfers: "Transfers",
+    }
+    return m[key] ?? key.replace(/_/g, " ")
+  },
 
   metricsTitle: "Custom metrics",
   addMetric: "+ Add metric",

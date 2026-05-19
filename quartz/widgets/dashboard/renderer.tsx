@@ -1827,7 +1827,7 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
             const over = target > 0 && actual > target
             return (
               <div className="dash-target" key={key}>
-                <span className="dash-target__label">{key}</span>
+                <span className="dash-target__label">{t.financeTargetLabel(key)}</span>
                 <div className="dash-bar">
                   <div
                     className={`dash-bar__fill${over ? " is-over" : ""}`}
