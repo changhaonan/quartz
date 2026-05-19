@@ -170,6 +170,29 @@ type EstimateKcalFn = (
   context?: string,
 ) => Promise<number | null>
 
+// Compact "LABEL value" pill, used in each section's summary row at the
+// top — so the panel reads as a glance even before scanning the cards.
+function SummaryPill(props: {
+  label: string
+  value: React.ReactNode
+  tone?: "good" | "warn" | "muted"
+}) {
+  const tone = props.tone ? ` dash-summary__pill--${props.tone}` : ""
+  return (
+    <div className={`dash-summary__pill${tone}`}>
+      <span className="dash-summary__label">{props.label}</span>
+      <span className="dash-summary__value">{props.value}</span>
+    </div>
+  )
+}
+
+// A goal counts as "work" iff one of its tags matches WORK_TAGS (case-
+// insensitive on the latin ones). Everything else falls into "personal".
+const WORK_TAGS = new Set(["work", "工作", "office", "job"])
+function isWorkGoal(g: DashboardGoal): boolean {
+  return g.tags.some((t) => WORK_TAGS.has(t.toLowerCase()))
+}
+
 // ---------------------------------------------------------------------------
 // EditableField — an in-place text field that reads as plain text until the
 // user clicks into it (no popup, no separate "edit mode"). The same pattern
@@ -759,6 +782,17 @@ function GoalsSection(props: {
     view.filterStatus !== "all" || view.filterPriority !== "all" || view.filterTag !== ""
   const visible = goals.filter((g) => matchesView(g, view))
 
+  // Summary pills: active workload split work / personal, plus overdue %
+  // of dated active goals. "Done" goals drop out; "main" / "weekly" /
+  // "daily" cadence is irrelevant here.
+  const today = todayISO()
+  const activeGoals = goals.filter((g) => g.status !== "done")
+  const workActive = activeGoals.filter(isWorkGoal).length
+  const personalActive = activeGoals.length - workActive
+  const withDue = activeGoals.filter((g) => g.dueDate)
+  const overdueCount = withDue.filter((g) => g.dueDate < today).length
+  const overdueRate = withDue.length > 0 ? Math.round((overdueCount / withDue.length) * 100) : 0
+
   return (
     <section className="dash-section">
       <div className="dash-section__head dash-section__head--board">
@@ -826,6 +860,15 @@ function GoalsSection(props: {
             </select>
           </div>
         )}
+      </div>
+      <div className="dash-summary">
+        <SummaryPill label={t.summaryWork} value={workActive} />
+        <SummaryPill label={t.summaryPersonal} value={personalActive} />
+        <SummaryPill
+          label={t.summaryOverdue}
+          value={`${overdueRate}%`}
+          tone={overdueCount > 0 ? "warn" : undefined}
+        />
       </div>
       <div className="dash-board">
         {GOAL_CADENCES.map((cadence) => (
@@ -1557,9 +1600,64 @@ function HealthSection(props: {
   }))
   const hasImport = importMetrics.some((m) => m.vals.length > 0)
 
+  // Summary pills — glance numbers for the section header.
+  const wPrev = series.length > 1 ? series[series.length - 2].kg : null
+  const wDelta = latestWeight != null && wPrev != null ? latestWeight - wPrev : null
+  const intakeT = sumKcalOnDate(mealLog, today)
+  const exManT = sumKcalOnDate(exerciseLog, today)
+  const exImpT = activeEnergyOnDate(samples, today)
+  const bmrT = computeBMR(profile, latestWeight) ?? 0
+  const hasNetData = intakeT > 0 || exManT > 0 || exImpT > 0 || bmrT > 0
+  const netToday = intakeT - (bmrT + exManT + exImpT)
+  const todaySample = (samples ?? []).find((s) => s.date === today)
+  const stepsToday = typeof todaySample?.steps === "number" ? todaySample.steps : null
+  const sleepToday = typeof todaySample?.sleepHours === "number" ? todaySample.sleepHours : null
+
   return (
     <section className="dash-section">
       <h2>{t.healthTitle}</h2>
+
+      <div className="dash-summary">
+        <SummaryPill
+          label={t.weight}
+          value={
+            latestWeight != null ? (
+              <>
+                {latestWeight.toFixed(1)} kg
+                {wDelta != null && Math.abs(wDelta) >= 0.05 && (
+                  <span className="dash-summary__delta">
+                    {" "}
+                    {wDelta > 0 ? "↗" : "↘"} {Math.abs(wDelta).toFixed(1)}
+                  </span>
+                )}
+              </>
+            ) : (
+              "—"
+            )
+          }
+        />
+        <SummaryPill
+          label={t.energyNet}
+          value={
+            hasNetData
+              ? `${netToday < 0 ? "−" : netToday > 0 ? "+" : ""}${Math.abs(netToday).toLocaleString("en-US")} kcal`
+              : "—"
+          }
+          tone={hasNetData && netToday !== 0 ? (netToday < 0 ? "good" : "warn") : undefined}
+        />
+        {stepsToday != null && (
+          <SummaryPill
+            label={t.healthMetrics.steps}
+            value={stepsToday.toLocaleString("en-US")}
+          />
+        )}
+        {sleepToday != null && (
+          <SummaryPill
+            label={t.healthMetrics.sleepHours}
+            value={`${sleepToday.toFixed(1)}h`}
+          />
+        )}
+      </div>
 
       <div className="dash-health-grid">
         <WeightCard
@@ -1679,6 +1777,13 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
     { label: t.financeControllable, value: money(sum?.controllable_spend_estimate) },
   ]
 
+  // Summary pills — net cash + this-week budget execution.
+  const netCash = acct?.net_cash_after_credit_card_balances
+  const targetEntries = Object.values<any>(targets)
+  const totalActual = targetEntries.reduce((s, tp) => s + Number(tp?.actual ?? 0), 0)
+  const totalTarget = targetEntries.reduce((s, tp) => s + Number(tp?.target ?? 0), 0)
+  const budgetPct = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : 0
+
   return (
     <section className="dash-section">
       <div className="dash-section__head">
@@ -1687,6 +1792,20 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
           <span className="dash-tag">
             {period.label} · {fin?.file}
           </span>
+        )}
+      </div>
+      <div className="dash-summary">
+        <SummaryPill
+          label={t.financeNet}
+          value={money(netCash)}
+          tone={typeof netCash === "number" ? (netCash < 0 ? "warn" : "good") : undefined}
+        />
+        {totalTarget > 0 && (
+          <SummaryPill
+            label={t.summaryWeekBudget}
+            value={`${budgetPct}%`}
+            tone={budgetPct >= 100 ? "warn" : undefined}
+          />
         )}
       </div>
       <div className="dash-stats">

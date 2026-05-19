@@ -159,6 +159,53 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   color: var(--gray);
 }
 
+// --- Section summary pills ------------------------------------------------
+// Glance row at the top of each section: a few compact "LABEL value"
+// pills so the panel reads at a glance before scanning the detail cards.
+.dash-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.1rem 0 0.05rem;
+}
+
+.dash-summary__pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.18rem 0.6rem;
+  background: $dash-fill;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--darkgray);
+}
+
+.dash-summary__label {
+  color: var(--gray);
+}
+
+.dash-summary__value {
+  font-weight: 600;
+}
+
+.dash-summary__delta {
+  font-weight: 500;
+  color: var(--gray);
+  font-size: 0.7rem;
+  margin-left: 0.1rem;
+}
+
+.dash-summary__pill--good .dash-summary__value {
+  color: #2f9e44;
+}
+.dash-summary__pill--warn .dash-summary__value {
+  color: #d9534f;
+}
+.dash-summary__pill--muted .dash-summary__value {
+  color: var(--gray);
+}
+
 // --- Goals board -----------------------------------------------------------
 // The "目标" section is a Notion-style board: three columns (每日 / 每周 / 主要),
 // each a soft-filled lane of goal cards. Cards drag between columns.

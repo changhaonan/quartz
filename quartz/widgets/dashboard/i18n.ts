@@ -21,6 +21,12 @@ export interface Strings {
   // --- shared words (composed into option labels) ---
   word: { status: string; priority: string; tag: string; sort: string; all: string; none: string }
 
+  // --- section summary pills (top of each section) ---
+  summaryWork: string
+  summaryPersonal: string
+  summaryOverdue: string
+  summaryWeekBudget: string
+
   // --- goals board ---
   goalsTitle: string
   cadence: Record<GoalCadence, string>
@@ -170,6 +176,11 @@ const zhCN: Strings = {
 
   word: { status: "状态", priority: "优先级", tag: "标签", sort: "排序", all: "全部", none: "无" },
 
+  summaryWork: "工作",
+  summaryPersonal: "个人",
+  summaryOverdue: "逾期",
+  summaryWeekBudget: "本周预算",
+
   goalsTitle: "目标",
   cadence: { daily: "每日", weekly: "每周", main: "主要" },
   addGoal: "+ 添加",
@@ -312,6 +323,11 @@ const enUS: Strings = {
     all: "All",
     none: "None",
   },
+
+  summaryWork: "Work",
+  summaryPersonal: "Personal",
+  summaryOverdue: "Overdue",
+  summaryWeekBudget: "Week budget",
 
   goalsTitle: "Goals",
   cadence: { daily: "Daily", weekly: "Weekly", main: "Main" },
