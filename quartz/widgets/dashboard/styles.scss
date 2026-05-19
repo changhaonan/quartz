@@ -632,6 +632,9 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     &.is-active.dash-seg__btn--doing {
       color: var(--tertiary);
     }
+    &.is-active.dash-seg__btn--paused {
+      color: var(--gray);
+    }
     &.is-active.dash-seg__btn--done {
       color: #2f9e44;
     }
@@ -650,6 +653,10 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   &--doing {
     background: color-mix(in srgb, var(--tertiary) 18%, transparent);
     color: var(--tertiary);
+  }
+  &--paused {
+    background: color-mix(in srgb, var(--gray) 18%, transparent);
+    color: var(--gray);
   }
   &--done {
     background: #d3f9d8;

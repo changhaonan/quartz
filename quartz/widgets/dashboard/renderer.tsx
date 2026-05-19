@@ -331,14 +331,14 @@ function moveGoal(
 }
 
 // --- Card property controls (Notion-database style) ------------------------
-const STATUS_VALUES: GoalStatus[] = ["todo", "doing", "done"]
+const STATUS_VALUES: GoalStatus[] = ["todo", "doing", "paused", "done"]
 // Priority select order: "none" first (acts as the placeholder), then high→low.
 const PRIORITY_VALUES: GoalPriority[] = ["none", "high", "mid", "low"]
 const SORT_VALUES: DashboardView["sort"][] = ["manual", "priority", "dueDate", "status"]
 
 // --- Board view: filtering + sorting ---------------------------------------
 // Sort ranks. Status: active work first, done last. Priority: high first.
-const STATUS_RANK: Record<GoalStatus, number> = { doing: 0, todo: 1, done: 2 }
+const STATUS_RANK: Record<GoalStatus, number> = { doing: 0, todo: 1, paused: 2, done: 3 }
 const PRIORITY_RANK: Record<GoalPriority, number> = { high: 0, mid: 1, low: 2, none: 3 }
 
 function matchesView(g: DashboardGoal, v: DashboardView): boolean {

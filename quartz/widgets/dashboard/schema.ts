@@ -15,8 +15,9 @@ export const GoalCadenceSchema = z.enum(["daily", "weekly", "main"]).default("ma
 export type GoalCadence = z.infer<typeof GoalCadenceSchema>
 
 // A goal's coarse status — the Notion "Status" property. This *is* the
-// progress indicator: no fine-grained percentage.
-export const GoalStatusSchema = z.enum(["todo", "doing", "done"]).default("todo")
+// progress indicator: no fine-grained percentage. "paused" = started
+// but on hold — doesn't count as load, doesn't count as done.
+export const GoalStatusSchema = z.enum(["todo", "doing", "paused", "done"]).default("todo")
 export type GoalStatus = z.infer<typeof GoalStatusSchema>
 
 // Priority — Notion "Priority" property. "none" = unset.
@@ -67,7 +68,7 @@ export const DashboardGoalSchema = z.object({
 // View toolbar state for the goals board — filters + sort. Persisted with the
 // data so the chosen view survives reloads. "all" / "" / "manual" = unset.
 export const DashboardViewSchema = z.object({
-  filterStatus: z.enum(["all", "todo", "doing", "done"]).default("all"),
+  filterStatus: z.enum(["all", "todo", "doing", "paused", "done"]).default("all"),
   filterPriority: z.enum(["all", "none", "low", "mid", "high"]).default("all"),
   filterTag: z.string().default(""),
   sort: z.enum(["manual", "priority", "dueDate", "status"]).default("manual"),
