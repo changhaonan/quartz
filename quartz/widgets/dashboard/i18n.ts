@@ -84,6 +84,38 @@ export interface Strings {
   estimateHint: string
   removeMeal: string
 
+  // --- energy balance ---
+  energyTitle: string
+  energyNet: string
+  energyIntake: string
+  energyExpenditure: string
+  energyBMR: string
+  energyExercise: string
+  energyDeficit: (n: string) => string
+  energySurplus: (n: string) => string
+  energyBalanced: string
+  energyProjection: string
+  energyEodPredict: (now: string) => string
+  energy7dayAvg: string
+  energyWeeklyDelta: (kg: string) => string
+  energyBMRMissing: string
+  energyExerciseImported: string
+
+  // --- profile ---
+  profileToggle: string
+  profileHeight: string
+  profileBirthDate: string
+  profileSex: string
+  profileSexValues: { male: string; female: string }
+
+  // --- exercise log ---
+  exerciseTitle: string
+  exerciseEmpty: string
+  addExercise: string
+  exercisePlaceholder: string
+  exerciseNameAria: string
+  removeExercise: string
+
   // --- finance ---
   financeTitle: string
   financeParseError: (msg: string) => string
@@ -195,6 +227,35 @@ const zhCN: Strings = {
   kcalAria: "卡路里(kcal)",
   estimateHint: "用 AI 估算卡路里",
   removeMeal: "删除这一餐",
+
+  energyTitle: "能量收支",
+  energyNet: "净差",
+  energyIntake: "摄入",
+  energyExpenditure: "消耗",
+  energyBMR: "BMR",
+  energyExercise: "运动",
+  energyDeficit: (n) => `赤字 ${n} kcal`,
+  energySurplus: (n) => `盈余 ${n} kcal`,
+  energyBalanced: "持平",
+  energyProjection: "预估",
+  energyEodPredict: (now) => `现在 ${now},按节奏 EOD`,
+  energy7dayAvg: "近 7 天均值",
+  energyWeeklyDelta: (kg) => `≈ ${kg} kg / 周`,
+  energyBMRMissing: "BMR 估算需要今日体重 + 下面的身高/出生年月/性别",
+  energyExerciseImported: "Apple Health",
+
+  profileToggle: "我的资料",
+  profileHeight: "身高 (cm)",
+  profileBirthDate: "出生年月",
+  profileSex: "性别",
+  profileSexValues: { male: "男", female: "女" },
+
+  exerciseTitle: "运动",
+  exerciseEmpty: "今天还没有运动记录。",
+  addExercise: "+ 添加运动",
+  exercisePlaceholder: "做了什么…",
+  exerciseNameAria: "运动",
+  removeExercise: "删除这一项",
 
   financeTitle: "财务",
   financeParseError: (msg) => `财务文件解析失败:${msg}`,
@@ -309,6 +370,35 @@ const enUS: Strings = {
   kcalAria: "Calories (kcal)",
   estimateHint: "Estimate calories with AI",
   removeMeal: "Delete this meal",
+
+  energyTitle: "Energy balance",
+  energyNet: "Net",
+  energyIntake: "Intake",
+  energyExpenditure: "Expenditure",
+  energyBMR: "BMR",
+  energyExercise: "Exercise",
+  energyDeficit: (n) => `${n} kcal deficit`,
+  energySurplus: (n) => `${n} kcal surplus`,
+  energyBalanced: "Balanced",
+  energyProjection: "Projection",
+  energyEodPredict: (now) => `Now ${now}, projected EOD`,
+  energy7dayAvg: "7-day average",
+  energyWeeklyDelta: (kg) => `≈ ${kg} kg/week`,
+  energyBMRMissing: "BMR needs today's weight + the height/birth date/sex below",
+  energyExerciseImported: "Apple Health",
+
+  profileToggle: "My profile",
+  profileHeight: "Height (cm)",
+  profileBirthDate: "Birth date",
+  profileSex: "Sex",
+  profileSexValues: { male: "Male", female: "Female" },
+
+  exerciseTitle: "Exercise",
+  exerciseEmpty: "No exercise logged today.",
+  addExercise: "+ Add exercise",
+  exercisePlaceholder: "What did you do…",
+  exerciseNameAria: "Exercise",
+  removeExercise: "Delete this entry",
 
   financeTitle: "Finance",
   financeParseError: (msg) => `Finance file failed to parse: ${msg}`,

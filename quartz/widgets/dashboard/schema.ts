@@ -95,6 +95,25 @@ export const MealEntrySchema = z.object({
 })
 export type MealEntry = z.infer<typeof MealEntrySchema>
 
+// One logged exercise — what + calories burned. Mirrors MealEntry so the
+// same in-place editing pattern (and the AI estimate button) works.
+export const ExerciseEntrySchema = z.object({
+  id: z.string().min(1),
+  date: z.string().default(""), // local YYYY-MM-DD
+  name: z.string().default(""),
+  kcal: z.number().default(0),
+})
+export type ExerciseEntry = z.infer<typeof ExerciseEntrySchema>
+
+// Body profile — feeds the Mifflin-St Jeor BMR estimate. Each field is
+// optional ("" / 0); BMR only computes once all three are set.
+export const DashboardProfileSchema = z.object({
+  heightCm: z.number().default(0),
+  birthDate: z.string().default(""), // YYYY-MM-DD
+  sex: z.enum(["male", "female", ""]).default(""),
+})
+export type DashboardProfile = z.infer<typeof DashboardProfileSchema>
+
 export const DashboardDataSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   title: z.string().default("主面板"),
@@ -103,6 +122,8 @@ export const DashboardDataSchema = z.object({
   // Manual health log — coexists with the Apple Health bridge import.
   weightLog: z.array(WeightEntrySchema).default([]),
   mealLog: z.array(MealEntrySchema).default([]),
+  exerciseLog: z.array(ExerciseEntrySchema).default([]),
+  profile: DashboardProfileSchema.default({ heightCm: 0, birthDate: "", sex: "" }),
   view: DashboardViewSchema.default({
     filterStatus: "all",
     filterPriority: "all",

@@ -15,7 +15,9 @@ import type {
   DashboardData,
   DashboardGoal,
   DashboardMetric,
+  DashboardProfile,
   DashboardView,
+  ExerciseEntry,
   GoalCadence,
   GoalLogEntry,
   GoalPriority,
@@ -99,6 +101,74 @@ function todayISO(): string {
   const p = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
+
+// N days ago as a local YYYY-MM-DD.
+function daysAgoISO(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  const p = (x: number) => String(x).padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// Fractional hour of the local day (0..24). EOD projection scales today's
+// values by 24/h.
+function hourOfDay(): number {
+  const d = new Date()
+  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600
+}
+
+function formatNowHHMM(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function ageFromBirthDate(iso: string): number | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  const today = new Date()
+  let age = today.getFullYear() - d.getFullYear()
+  const beforeBirthday =
+    today.getMonth() < d.getMonth() ||
+    (today.getMonth() === d.getMonth() && today.getDate() < d.getDate())
+  if (beforeBirthday) age--
+  return age >= 0 && age < 130 ? age : null
+}
+
+// Mifflin-St Jeor BMR. Returns null if profile incomplete or weight unknown.
+function computeBMR(profile: DashboardProfile, weightKg: number | null): number | null {
+  if (!profile.heightCm || profile.heightCm <= 0) return null
+  if (profile.sex !== "male" && profile.sex !== "female") return null
+  if (weightKg == null || weightKg <= 0) return null
+  const age = ageFromBirthDate(profile.birthDate)
+  if (age == null) return null
+  const base = 10 * weightKg + 6.25 * profile.heightCm - 5 * age
+  return Math.round(profile.sex === "male" ? base + 5 : base - 161)
+}
+
+function sumKcalOnDate(rows: Array<{ date: string; kcal: number }>, date: string): number {
+  let s = 0
+  for (const r of rows) if (r.date === date) s += Number.isFinite(r.kcal) ? r.kcal : 0
+  return s
+}
+
+function activeEnergyOnDate(samples: HealthSample[] | null, date: string): number {
+  if (!samples) return 0
+  for (const s of samples) {
+    if (s.date === date && typeof s.activeEnergy === "number") return s.activeEnergy
+  }
+  return 0
+}
+
+// One AI-estimate helper, used by both food and exercise rows. The
+// `intent` switches the bridge's prompt; `context` is an optional hint
+// (meal slot for food, intensity-y phrase for exercise).
+type EstimateKcalFn = (
+  description: string,
+  intent: "food" | "exercise",
+  context?: string,
+) => Promise<number | null>
 
 // ---------------------------------------------------------------------------
 // EditableField — an in-place text field that reads as plain text until the
@@ -796,6 +866,10 @@ interface HealthSample {
   steps?: number
   sleepHours?: number
   restingHR?: number
+  // Energy fields — populated by the iOS Shortcut when it POSTs Apple
+  // Health's "Active Energy" and "Resting Energy" alongside the others.
+  activeEnergy?: number
+  restingEnergy?: number
 }
 
 const HEALTH_MINI_METRICS: Array<{
@@ -970,7 +1044,7 @@ function MealRow(props: {
   entry: MealEntry
   canWrite: boolean
   focus: boolean
-  estimate: ((food: string, meal: string) => Promise<number | null>) | null
+  estimate: EstimateKcalFn | null
   onPatch: (partial: Partial<MealEntry>) => void
   onRemove: () => void
 }) {
@@ -993,7 +1067,7 @@ function MealRow(props: {
     if (estimating || !props.estimate || !food) return
     setEstimating(true)
     try {
-      const kcal = await props.estimate(food, e.meal)
+      const kcal = await props.estimate(food, "food", e.meal)
       if (kcal != null && kcal > 0) props.onPatch({ kcal })
     } finally {
       setEstimating(false)
@@ -1060,7 +1134,7 @@ function CalorieCard(props: {
   entries: MealEntry[]
   canWrite: boolean
   focusMealId: string | null
-  estimate: ((food: string, meal: string) => Promise<number | null>) | null
+  estimate: EstimateKcalFn | null
   onPatch: (id: string, partial: Partial<MealEntry>) => void
   onRemove: (id: string) => void
   onAdd: () => void
@@ -1108,28 +1182,352 @@ function CalorieCard(props: {
   )
 }
 
+// One editable exercise row — mirrors MealRow but without a slot select.
+// AI ✨ estimate uses the same bridge endpoint with intent: "exercise".
+function ExerciseRow(props: {
+  entry: ExerciseEntry
+  canWrite: boolean
+  focus: boolean
+  estimate: EstimateKcalFn | null
+  onPatch: (partial: Partial<ExerciseEntry>) => void
+  onRemove: () => void
+}) {
+  const t = useStrings()
+  const { entry: e, canWrite, focus } = props
+  const [estimating, setEstimating] = useState(false)
+
+  if (!canWrite) {
+    return (
+      <div className="dash-cal__row">
+        <span className="dash-cal__food-ro">{e.name}</span>
+        <span className="dash-cal__kcal-ro">{(e.kcal || 0).toLocaleString("en-US")} kcal</span>
+      </div>
+    )
+  }
+
+  const runEstimate = async () => {
+    const name = e.name.trim()
+    if (estimating || !props.estimate || !name) return
+    setEstimating(true)
+    try {
+      const kcal = await props.estimate(name, "exercise")
+      if (kcal != null && kcal > 0) props.onPatch({ kcal })
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  return (
+    <div className="dash-cal__row">
+      <EditableField
+        className="dash-cal__food"
+        value={e.name}
+        placeholder={t.exercisePlaceholder}
+        ariaLabel={t.exerciseNameAria}
+        focusOnMount={focus}
+        onCommit={(name) => props.onPatch({ name })}
+      />
+      {props.estimate && (
+        <button
+          type="button"
+          className="dash-cal__est"
+          title={t.estimateHint}
+          aria-label={t.estimateHint}
+          disabled={estimating || e.name.trim() === ""}
+          onClick={runEstimate}
+        >
+          {estimating ? "⋯" : "✨"}
+        </button>
+      )}
+      <EditableField
+        className="dash-cal__kcal"
+        value={e.kcal ? String(e.kcal) : ""}
+        placeholder="0"
+        ariaLabel={t.kcalAria}
+        onCommit={(v) => props.onPatch({ kcal: Math.max(0, Math.round(parseFloat(v) || 0)) })}
+      />
+      <span className="dash-cal__unit">kcal</span>
+      <button
+        type="button"
+        className="dash-cal__x"
+        title={t.removeExercise}
+        aria-label={t.removeExercise}
+        onClick={props.onRemove}
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
+// Exercise card — today's workouts plus an Apple-Health "Active Energy"
+// total row when imported. Same in-place editing pattern as the meal log.
+function ExerciseCard(props: {
+  entries: ExerciseEntry[]
+  importedKcal: number
+  canWrite: boolean
+  focusExerciseId: string | null
+  estimate: EstimateKcalFn | null
+  onPatch: (id: string, partial: Partial<ExerciseEntry>) => void
+  onRemove: (id: string) => void
+  onAdd: () => void
+}) {
+  const t = useStrings()
+  const { entries, importedKcal, canWrite, focusExerciseId } = props
+  const manualTotal = entries.reduce((s, e) => s + (Number.isFinite(e.kcal) ? e.kcal : 0), 0)
+  const total = manualTotal + importedKcal
+
+  return (
+    <div className="dash-cal">
+      <div className="dash-cal__head">
+        <span className="dash-health__label">
+          {t.exerciseTitle} · {t.calorieToday}
+        </span>
+        <span className="dash-cal__total">
+          {total.toLocaleString("en-US")} <span className="dash-health__unit">kcal</span>
+        </span>
+      </div>
+      {entries.length === 0 && importedKcal === 0 && (
+        <p className="dash-empty">{t.exerciseEmpty}</p>
+      )}
+      {entries.length > 0 && (
+        <div className="dash-cal__rows">
+          {entries.map((e) => (
+            <ExerciseRow
+              key={e.id}
+              entry={e}
+              canWrite={canWrite}
+              focus={e.id === focusExerciseId}
+              estimate={props.estimate}
+              onPatch={(partial) => props.onPatch(e.id, partial)}
+              onRemove={() => props.onRemove(e.id)}
+            />
+          ))}
+        </div>
+      )}
+      {importedKcal > 0 && (
+        <div className="dash-cal__row dash-cal__row--imported">
+          <span className="dash-cal__food-ro">{t.energyExerciseImported}</span>
+          <span className="dash-cal__kcal-ro">
+            {Math.round(importedKcal).toLocaleString("en-US")} kcal
+          </span>
+        </div>
+      )}
+      {canWrite && (
+        <button type="button" className="dash-cal__add" onClick={props.onAdd}>
+          {t.addExercise}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Body profile — 3 inline fields that feed Mifflin-St Jeor.
+function ProfileEditor(props: {
+  profile: DashboardProfile
+  setProfile: (partial: Partial<DashboardProfile>) => void
+}) {
+  const t = useStrings()
+  const { profile } = props
+  return (
+    <div className="dash-profile">
+      <label className="dash-profile__field">
+        <span className="dash-profile__label">{t.profileHeight}</span>
+        <input
+          type="number"
+          className="dash-profile__input"
+          value={profile.heightCm || ""}
+          aria-label={t.profileHeight}
+          placeholder="—"
+          min={80}
+          max={250}
+          onChange={(e) => props.setProfile({ heightCm: parseFloat(e.currentTarget.value) || 0 })}
+        />
+      </label>
+      <label className="dash-profile__field">
+        <span className="dash-profile__label">{t.profileBirthDate}</span>
+        <input
+          type="date"
+          className="dash-profile__input"
+          value={profile.birthDate || ""}
+          aria-label={t.profileBirthDate}
+          onChange={(e) => props.setProfile({ birthDate: e.currentTarget.value })}
+        />
+      </label>
+      <label className="dash-profile__field">
+        <span className="dash-profile__label">{t.profileSex}</span>
+        <select
+          className="dash-profile__input"
+          value={profile.sex || ""}
+          aria-label={t.profileSex}
+          onChange={(e) =>
+            props.setProfile({ sex: e.currentTarget.value as DashboardProfile["sex"] })
+          }
+        >
+          <option value="">—</option>
+          <option value="male">{t.profileSexValues.male}</option>
+          <option value="female">{t.profileSexValues.female}</option>
+        </select>
+      </label>
+    </div>
+  )
+}
+
+// Energy balance summary — today's intake / expenditure / net, plus an
+// EOD projection (linear extrapolation by clock time) and a 7-day average
+// translated to a weekly weight delta (7700 kcal ≈ 1 kg fat).
+function EnergyBalanceCard(props: {
+  weightKg: number | null
+  profile: DashboardProfile
+  mealLog: MealEntry[]
+  exerciseLog: ExerciseEntry[]
+  samples: HealthSample[] | null
+  canWrite: boolean
+  setProfile: (partial: Partial<DashboardProfile>) => void
+}) {
+  const t = useStrings()
+  const today = todayISO()
+  const bmr = computeBMR(props.profile, props.weightKg) ?? 0
+
+  const intakeToday = sumKcalOnDate(props.mealLog, today)
+  const exerciseManualToday = sumKcalOnDate(props.exerciseLog, today)
+  const exerciseImportedToday = activeEnergyOnDate(props.samples, today)
+  const exerciseTotalToday = exerciseManualToday + exerciseImportedToday
+  const expenditureToday = bmr + exerciseTotalToday
+  const net = intakeToday - expenditureToday
+
+  // EOD projection: scale today's running totals by 24/elapsed-hours. BMR
+  // is 24h-constant; intake + exercise scale.
+  const h = hourOfDay()
+  const factor = h > 0.5 ? 24 / h : 1
+  const intakeEOD = Math.round(intakeToday * factor)
+  const exerciseEOD = Math.round(exerciseTotalToday * factor)
+  const expEOD = bmr + exerciseEOD
+  const netEOD = intakeEOD - expEOD
+
+  // 7-day net: average over days with any data (skip past empty days, keep
+  // today even if partial). Translate to a weekly weight delta.
+  let sumNet = 0
+  let countDays = 0
+  for (let i = 0; i < 7; i++) {
+    const d = daysAgoISO(i)
+    const intake = sumKcalOnDate(props.mealLog, d)
+    const exMan = sumKcalOnDate(props.exerciseLog, d)
+    const exImp = activeEnergyOnDate(props.samples, d)
+    const hasAny = intake > 0 || exMan > 0 || exImp > 0 || i === 0
+    if (!hasAny) continue
+    sumNet += intake - (bmr + exMan + exImp)
+    countDays++
+  }
+  const avg7Net = countDays > 0 ? sumNet / countDays : 0
+  const weeklyDeltaKg = ((avg7Net * 7) / 7700).toFixed(2)
+
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileIncomplete = bmr === 0
+
+  const netLabel =
+    net === 0
+      ? t.energyBalanced
+      : net < 0
+        ? t.energyDeficit(Math.abs(net).toLocaleString("en-US"))
+        : t.energySurplus(net.toLocaleString("en-US"))
+  const netClass =
+    net < 0 ? "dash-energy__net--deficit" : net > 0 ? "dash-energy__net--surplus" : "dash-energy__net--balanced"
+
+  const fmtSigned = (n: number) =>
+    n === 0 ? "0" : (n < 0 ? "−" : "+") + Math.abs(n).toLocaleString("en-US")
+
+  return (
+    <div className="dash-energy">
+      <div className="dash-energy__head">
+        <span className="dash-health__label">
+          {t.energyTitle} · {t.calorieToday}
+        </span>
+        <span className={`dash-energy__net ${netClass}`}>{netLabel}</span>
+      </div>
+
+      <div className="dash-energy__rows">
+        <div className="dash-energy__row">
+          <span className="dash-energy__label">{t.energyIntake}</span>
+          <span className="dash-energy__value">{intakeToday.toLocaleString("en-US")} kcal</span>
+        </div>
+        <div className="dash-energy__row">
+          <span className="dash-energy__label">{t.energyExpenditure}</span>
+          <span className="dash-energy__value">
+            {expenditureToday.toLocaleString("en-US")} kcal
+          </span>
+        </div>
+        <div className="dash-energy__sub">
+          <span>{t.energyBMR}</span>
+          <span>{bmr > 0 ? `${bmr.toLocaleString("en-US")} kcal` : "—"}</span>
+        </div>
+        <div className="dash-energy__sub">
+          <span>{t.energyExercise}</span>
+          <span>{exerciseTotalToday.toLocaleString("en-US")} kcal</span>
+        </div>
+      </div>
+
+      {profileIncomplete && <p className="dash-empty">{t.energyBMRMissing}</p>}
+
+      <div className="dash-energy__proj">
+        <span className="dash-health__label">{t.energyProjection}</span>
+        <div className="dash-energy__projrow">
+          <span>{t.energyEodPredict(formatNowHHMM())}</span>
+          <span className="dash-energy__projval">{fmtSigned(netEOD)} kcal</span>
+        </div>
+        <div className="dash-energy__projrow">
+          <span>{t.energy7dayAvg}</span>
+          <span className="dash-energy__projval">{t.energyWeeklyDelta(weeklyDeltaKg)}</span>
+        </div>
+      </div>
+
+      {props.canWrite && (
+        <div className="dash-energy__profile">
+          <button
+            type="button"
+            className={`dash-log-toggle${profileOpen ? " is-open" : ""}`}
+            onClick={() => setProfileOpen((o) => !o)}
+          >
+            <span className="dash-log-toggle__caret" aria-hidden="true" />
+            {t.profileToggle}
+          </button>
+          {profileOpen && <ProfileEditor profile={props.profile} setProfile={props.setProfile} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
-// Health — the manual log (weight + calories, entered right here) sits next to
-// the Apple Health metrics pushed from an iOS Shortcut (steps / sleep / HR).
+// Health — the manual log (weight + calories + exercise + body profile,
+// entered right here) sits next to the Apple Health metrics pushed from an
+// iOS Shortcut (steps / sleep / HR / active energy / resting energy).
 // ---------------------------------------------------------------------------
 function HealthSection(props: {
   samples: HealthSample[] | null
   error: string | null
   weightLog: WeightEntry[]
   mealLog: MealEntry[]
+  exerciseLog: ExerciseEntry[]
+  profile: DashboardProfile
   canWrite: boolean
   focusMealId: string | null
-  estimateCalories: ((food: string, meal: string) => Promise<number | null>) | null
+  focusExerciseId: string | null
+  estimateKcal: EstimateKcalFn | null
   setWeightLog: (mutate: (log: WeightEntry[]) => WeightEntry[]) => void
   setMealLog: (mutate: (log: MealEntry[]) => MealEntry[]) => void
+  setExerciseLog: (mutate: (log: ExerciseEntry[]) => ExerciseEntry[]) => void
+  setProfile: (partial: Partial<DashboardProfile>) => void
   onAddMeal: () => void
+  onAddExercise: () => void
 }) {
   const t = useStrings()
-  const { samples, error, weightLog, mealLog, canWrite, focusMealId } = props
+  const { samples, error, weightLog, mealLog, exerciseLog, profile, canWrite, focusMealId, focusExerciseId } = props
   const today = todayISO()
 
   const series = mergedWeightSeries(samples, weightLog)
   const todayWeight = weightLog.find((e) => e.date === today) ?? null
+  const latestWeight = series.length ? series[series.length - 1].kg : (todayWeight?.kg ?? null)
   const setTodayWeight = (kg: number) => {
     props.setWeightLog((log) => {
       const rest = log.filter((e) => e.date !== today)
@@ -1144,6 +1542,12 @@ function HealthSection(props: {
     props.setMealLog((log) => log.map((e) => (e.id === id ? { ...e, ...partial } : e)))
   const removeMeal = (id: string) =>
     props.setMealLog((log) => log.filter((e) => e.id !== id))
+
+  const todayExercises = exerciseLog.filter((e) => e.date === today)
+  const patchExercise = (id: string, partial: Partial<ExerciseEntry>) =>
+    props.setExerciseLog((log) => log.map((e) => (e.id === id ? { ...e, ...partial } : e)))
+  const removeExercise = (id: string) =>
+    props.setExerciseLog((log) => log.filter((e) => e.id !== id))
 
   // Apple Health mini metrics — shown only once the phone has pushed samples.
   const importMetrics = HEALTH_MINI_METRICS.map((m) => ({
@@ -1165,14 +1569,35 @@ function HealthSection(props: {
         onSetToday={setTodayWeight}
       />
 
+      <EnergyBalanceCard
+        weightKg={latestWeight}
+        profile={profile}
+        mealLog={mealLog}
+        exerciseLog={exerciseLog}
+        samples={samples}
+        canWrite={canWrite}
+        setProfile={props.setProfile}
+      />
+
       <CalorieCard
         entries={todayMeals}
         canWrite={canWrite}
         focusMealId={focusMealId}
-        estimate={props.estimateCalories}
+        estimate={props.estimateKcal}
         onPatch={patchMeal}
         onRemove={removeMeal}
         onAdd={props.onAddMeal}
+      />
+
+      <ExerciseCard
+        entries={todayExercises}
+        importedKcal={activeEnergyOnDate(samples, today)}
+        canWrite={canWrite}
+        focusExerciseId={focusExerciseId}
+        estimate={props.estimateKcal}
+        onPatch={patchExercise}
+        onRemove={removeExercise}
+        onAdd={props.onAddExercise}
       />
 
       {hasImport && (
@@ -1563,6 +1988,7 @@ function Dashboard(props: {
   const [focusGoalId, setFocusGoalId] = useState<string | null>(null)
   const [focusMetricId, setFocusMetricId] = useState<string | null>(null)
   const [focusMealId, setFocusMealId] = useState<string | null>(null)
+  const [focusExerciseId, setFocusExerciseId] = useState<string | null>(null)
 
   // Display locale comes from the global chrome toggle — track it in state so
   // the panel re-renders when the user switches language.
@@ -1752,17 +2178,31 @@ function Dashboard(props: {
     })
     setFocusMealId(id)
   }, [setMealLog])
-  // AI calorie estimate — POSTs the food description to the bridge, which
-  // runs a one-shot codex call. Returns null on any failure so the row
-  // simply leaves kcal for the user to type.
-  const estimateCalories = useCallback(
-    async (food: string, meal: string): Promise<number | null> => {
+  const setExerciseLog = useCallback(
+    (mutate: (log: ExerciseEntry[]) => ExerciseEntry[]) =>
+      commit((cur) => ({ ...cur, exerciseLog: mutate(cur.exerciseLog) }), ["exerciseLog"]),
+    [commit],
+  )
+  const setProfile = useCallback(
+    (partial: Partial<DashboardProfile>) =>
+      commit((cur) => ({ ...cur, profile: { ...cur.profile, ...partial } }), ["profile"]),
+    [commit],
+  )
+  const addExercise = useCallback(() => {
+    const id = `ex-${Date.now()}`
+    setExerciseLog((log) => [...log, { id, date: todayISO(), name: "", kcal: 0 }])
+    setFocusExerciseId(id)
+  }, [setExerciseLog])
+  // AI kcal estimate — generic over food/exercise via the `intent` flag.
+  // Returns null on any failure so the row leaves kcal for the user to type.
+  const estimateKcal = useCallback<EstimateKcalFn>(
+    async (description, intent, context) => {
       if (!bridgeOrigin) return null
       try {
         const res = await fetch(`${bridgeOrigin}/api/metrics/estimate-calories`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ food, meal }),
+          body: JSON.stringify({ description, intent, context }),
         })
         if (!res.ok) return null
         const json = await res.json()
@@ -1817,12 +2257,18 @@ function Dashboard(props: {
           error={healthErr}
           weightLog={data.weightLog}
           mealLog={data.mealLog}
+          exerciseLog={data.exerciseLog}
+          profile={data.profile}
           canWrite={canWrite}
           focusMealId={focusMealId}
-          estimateCalories={bridgeOrigin ? estimateCalories : null}
+          focusExerciseId={focusExerciseId}
+          estimateKcal={bridgeOrigin ? estimateKcal : null}
           setWeightLog={setWeightLog}
           setMealLog={setMealLog}
+          setExerciseLog={setExerciseLog}
+          setProfile={setProfile}
           onAddMeal={addMeal}
+          onAddExercise={addExercise}
         />
         <FinanceSection finance={agg?.finance} />
         <MetricsSection
