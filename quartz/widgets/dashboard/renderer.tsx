@@ -889,9 +889,6 @@ function TrendChart(props: { values: number[]; height: number; fill?: boolean })
   )
 }
 
-// Meal display order — breakfast → snack.
-const MEAL_ORDER: Record<MealType, number> = { breakfast: 0, lunch: 1, dinner: 2, snack: 3 }
-
 // Merge Apple-Health imported weights with manually-logged ones into one
 // date-ordered series. A manual entry wins for its date — so a correction, or
 // a day the phone didn't push, still lands on the trend.
@@ -1070,7 +1067,10 @@ function CalorieCard(props: {
 }) {
   const t = useStrings()
   const { entries, canWrite, focusMealId } = props
-  const rows = [...entries].sort((a, b) => MEAL_ORDER[a.meal] - MEAL_ORDER[b.meal])
+  // Rows stay in the order meals were added — a new row appends at the
+  // bottom, by the "+ add meal" button. (No re-sort by slot: that made a
+  // fresh row jump above the existing ones.)
+  const rows = entries
   const total = rows.reduce((s, e) => s + (Number.isFinite(e.kcal) ? e.kcal : 0), 0)
 
   return (
@@ -1739,15 +1739,18 @@ function Dashboard(props: {
     [commit],
   )
   const addMeal = useCallback(() => {
-    const entry: MealEntry = {
-      id: `meal-${Date.now()}`,
-      date: todayISO(),
-      meal: "breakfast",
-      food: "",
-      kcal: 0,
-    }
-    setMealLog((log) => [...log, entry])
-    setFocusMealId(entry.id)
+    const today = todayISO()
+    const id = `meal-${Date.now()}`
+    setMealLog((log) => {
+      // Default the slot to the last meal logged today — usually you're
+      // adding to the same or a later meal, never re-opening breakfast.
+      const todayMeals = log.filter((m) => m.date === today)
+      const meal: MealType = todayMeals.length
+        ? todayMeals[todayMeals.length - 1].meal
+        : "breakfast"
+      return [...log, { id, date: today, meal, food: "", kcal: 0 }]
+    })
+    setFocusMealId(id)
   }, [setMealLog])
   // AI calorie estimate — POSTs the food description to the bridge, which
   // runs a one-shot codex call. Returns null on any failure so the row
