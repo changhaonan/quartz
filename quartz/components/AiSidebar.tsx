@@ -174,7 +174,7 @@ const AiSidebar: QuartzComponent = ({ fileData }: QuartzComponentProps) => {
         <textarea
           class="ai-sidebar__textarea"
           name="prompt"
-          rows={5}
+          rows={3}
           placeholder="Ask about this workspace..."
           data-i18n-placeholder="composerPlaceholder"
         ></textarea>

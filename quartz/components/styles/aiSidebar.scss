@@ -2,7 +2,10 @@
   background: var(--light);
   box-sizing: border-box;
   display: grid;
-  gap: 0.85rem;
+  // Tight gaps + a generous terminal row: the embedded PTY pane is the
+  // one section that benefits from every extra pixel (a cramped TUI
+  // redraws — and scrolls — far more aggressively).
+  gap: 0.55rem;
   grid-template-rows: auto auto auto minmax(24rem, 1fr) auto auto auto;
   height: 100%;
   min-height: 0;
@@ -225,7 +228,7 @@
   font: inherit;
   font-size: 0.9rem;
   line-height: 1.4;
-  min-height: 7rem;
+  min-height: 4.5rem;
   padding: 0.72rem;
   resize: vertical;
   width: 100%;
