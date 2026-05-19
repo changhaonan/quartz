@@ -23,6 +23,17 @@ export type GoalStatus = z.infer<typeof GoalStatusSchema>
 export const GoalPrioritySchema = z.enum(["none", "low", "mid", "high"]).default("none")
 export type GoalPriority = z.infer<typeof GoalPrioritySchema>
 
+// Personal life vs work / company — explicit, so the summary count and
+// the visual marker on the card don't depend on a "work" tag the user
+// has to remember to add. Default "personal" — the common case.
+export const GoalKindSchema = z.enum(["personal", "work"]).default("personal")
+export type GoalKind = z.infer<typeof GoalKindSchema>
+
+// Coarse effort bucket — S / M / L — instead of a literal minute count.
+// "" = unset; the AI estimate or a click picks one.
+export const GoalSizeSchema = z.enum(["", "S", "M", "L"]).default("")
+export type GoalSize = z.infer<typeof GoalSizeSchema>
+
 // One timestamped progress note. The goal's `log` accumulates these into a
 // timeline so "where is this task at" is recorded as it changes.
 export const GoalLogEntrySchema = z.object({
@@ -46,9 +57,11 @@ export const DashboardGoalSchema = z.object({
   log: z.array(GoalLogEntrySchema).default([]),
   // Which board column the goal shows under: 每日 / 每周 / 主要.
   cadence: GoalCadenceSchema,
-  // Estimated time to complete, in minutes. 0 = unset. Editable in-place;
-  // ✨ button asks codex for an estimate from the title + note.
-  estimatedMinutes: z.number().default(0),
+  // Personal vs work — explicit classification, replaces the implicit
+  // tag-based detection.
+  kind: GoalKindSchema,
+  // Coarse effort bucket (S/M/L). Editable; ✨ button asks codex.
+  size: GoalSizeSchema,
 })
 
 // View toolbar state for the goals board — filters + sort. Persisted with the

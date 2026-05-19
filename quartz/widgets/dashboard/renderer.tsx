@@ -19,8 +19,10 @@ import type {
   DashboardView,
   ExerciseEntry,
   GoalCadence,
+  GoalKind,
   GoalLogEntry,
   GoalPriority,
+  GoalSize,
   GoalStatus,
   MealEntry,
   MealType,
@@ -190,37 +192,16 @@ function SummaryPill(props: {
   )
 }
 
-// A goal counts as "work" iff one of its tags matches WORK_TAGS (case-
-// insensitive on the latin ones). Everything else falls into "personal".
+// "Work" comes from the explicit `kind` field; legacy goals with the
+// "work" / "工作" tag still count, so old data tagged that way is not
+// lost when the summary tallies.
 const WORK_TAGS = new Set(["work", "工作", "office", "job"])
 function isWorkGoal(g: DashboardGoal): boolean {
+  if (g.kind === "work") return true
   return g.tags.some((t) => WORK_TAGS.has(t.toLowerCase()))
 }
 
-// Parse a free-text time estimate into integer minutes. "45m" / "2h" /
-// "1.5h" / "2d" supported; a bare number defaults to hours. Returns 0
-// on parse failure or non-positive input (which clears the field).
-function parseTimeInput(s: string): number {
-  const t = s.trim().toLowerCase()
-  if (!t) return 0
-  const m = t.match(/^([\d.]+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?$/)
-  if (!m) return 0
-  const n = parseFloat(m[1])
-  if (!isFinite(n) || n < 0) return 0
-  const unit = m[2] || "h"
-  if (unit.startsWith("m") && unit !== "h") return Math.round(n)
-  if (unit.startsWith("d")) return Math.round(n * 8 * 60) // workday = 8h
-  return Math.round(n * 60)
-}
-
-// Render minutes back to a compact string. <60 → "45m"; whole hours →
-// "2h"; fractional → "1.5h". Empty / 0 → "".
-function formatMinutes(min: number): string {
-  if (!Number.isFinite(min) || min <= 0) return ""
-  if (min < 60) return `${Math.round(min)}m`
-  const h = min / 60
-  return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`
-}
+const GOAL_SIZES: Array<Exclude<GoalSize, "">> = ["S", "M", "L"]
 
 // ---------------------------------------------------------------------------
 // EditableField — an in-place text field that reads as plain text until the
@@ -539,7 +520,7 @@ function GoalCard(props: {
   canWrite: boolean
   dragging: boolean
   focus: boolean
-  estimateTaskTime: ((title: string, note: string) => Promise<number | null>) | null
+  estimateTaskSize: ((title: string, note: string) => Promise<GoalSize | null>) | null
   onPatch: (partial: Partial<DashboardGoal>) => void
   onRemove: () => void
   onDragStart: () => void
@@ -551,19 +532,24 @@ function GoalCard(props: {
   const t = useStrings()
   const { goal: g, canWrite, dragging, focus } = props
   const cardRef = useRef<HTMLDivElement>(null)
-  const [estimatingTime, setEstimatingTime] = useState(false)
+  const [estimating, setEstimating] = useState(false)
+  const isWork = g.kind === "work"
   const showProps =
-    canWrite || g.priority !== "none" || Boolean(g.dueDate) || g.estimatedMinutes > 0
+    canWrite ||
+    g.priority !== "none" ||
+    Boolean(g.dueDate) ||
+    g.size !== "" ||
+    isWork
 
-  const runTimeEstimate = async () => {
+  const runSizeEstimate = async () => {
     const title = g.title.trim()
-    if (estimatingTime || !props.estimateTaskTime || !title) return
-    setEstimatingTime(true)
+    if (estimating || !props.estimateTaskSize || !title) return
+    setEstimating(true)
     try {
-      const min = await props.estimateTaskTime(title, g.note)
-      if (min != null && min > 0) props.onPatch({ estimatedMinutes: min })
+      const size = await props.estimateTaskSize(title, g.note)
+      if (size && size !== "") props.onPatch({ size })
     } finally {
-      setEstimatingTime(false)
+      setEstimating(false)
     }
   }
 
@@ -662,6 +648,21 @@ function GoalCard(props: {
               )
             )}
             {canWrite ? (
+              <select
+                className={`dash-kind dash-kind--${g.kind}`}
+                value={g.kind}
+                aria-label={t.goalKindAria}
+                onChange={(e) => props.onPatch({ kind: e.currentTarget.value as GoalKind })}
+              >
+                <option value="personal">{t.goalKind.personal}</option>
+                <option value="work">{t.goalKind.work}</option>
+              </select>
+            ) : (
+              isWork && (
+                <span className="dash-kindpill dash-kindpill--work">{t.goalKind.work}</span>
+              )
+            )}
+            {canWrite ? (
               <input
                 className={`dash-date${g.dueDate ? " has-value" : ""}`}
                 type="date"
@@ -673,30 +674,37 @@ function GoalCard(props: {
               g.dueDate && <span className="dash-duepill">📅 {g.dueDate}</span>
             )}
             {canWrite ? (
-              <span className="dash-est">
-                <EditableField
-                  className="dash-est__input"
-                  value={formatMinutes(g.estimatedMinutes)}
-                  placeholder={t.estimatePlaceholder}
-                  ariaLabel={t.estimateAria}
-                  onCommit={(v) => props.onPatch({ estimatedMinutes: parseTimeInput(v) })}
-                />
-                {props.estimateTaskTime && (
+              <span className="dash-size">
+                <span className="dash-seg dash-seg--size" role="group" aria-label={t.goalSizeAria}>
+                  {GOAL_SIZES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`dash-seg__btn dash-seg__btn--size-${s}${g.size === s ? " is-active" : ""}`}
+                      onClick={() => props.onPatch({ size: g.size === s ? "" : s })}
+                    >
+                      {t.goalSize[s]}
+                    </button>
+                  ))}
+                </span>
+                {props.estimateTaskSize && (
                   <button
                     type="button"
-                    className="dash-est__ai"
+                    className="dash-size__ai"
                     title={t.estimateAIHint}
                     aria-label={t.estimateAIHint}
-                    disabled={estimatingTime || g.title.trim() === ""}
-                    onClick={runTimeEstimate}
+                    disabled={estimating || g.title.trim() === ""}
+                    onClick={runSizeEstimate}
                   >
-                    {estimatingTime ? "⋯" : "✨"}
+                    {estimating ? "⋯" : "✨"}
                   </button>
                 )}
               </span>
             ) : (
-              g.estimatedMinutes > 0 && (
-                <span className="dash-estpill">⏱ {formatMinutes(g.estimatedMinutes)}</span>
+              g.size !== "" && (
+                <span className={`dash-sizepill dash-sizepill--${g.size}`}>
+                  {t.goalSize[g.size as Exclude<GoalSize, "">]}
+                </span>
               )
             )}
           </div>
@@ -722,7 +730,7 @@ function GoalColumn(props: {
   draggingId: string | null
   focusGoalId: string | null
   drop: DropTarget | null
-  estimateTaskTime: ((title: string, note: string) => Promise<number | null>) | null
+  estimateTaskSize: ((title: string, note: string) => Promise<GoalSize | null>) | null
   onCardPatch: (id: string, partial: Partial<DashboardGoal>) => void
   onRemove: (id: string) => void
   onAdd: (cadence: GoalCadence) => void
@@ -771,7 +779,7 @@ function GoalColumn(props: {
               canWrite={canWrite}
               dragging={draggingId === g.id}
               focus={focusGoalId === g.id}
-              estimateTaskTime={props.estimateTaskTime}
+              estimateTaskSize={props.estimateTaskSize}
               onPatch={(partial) => props.onCardPatch(g.id, partial)}
               onRemove={() => props.onRemove(g.id)}
               onDragStart={() => props.onDragStart(g.id)}
@@ -808,7 +816,7 @@ function GoalsSection(props: {
   view: DashboardView
   canWrite: boolean
   focusGoalId: string | null
-  estimateTaskTime: ((title: string, note: string) => Promise<number | null>) | null
+  estimateTaskSize: ((title: string, note: string) => Promise<GoalSize | null>) | null
   // Mutate the goals array and persist.
   setGoals: (mutate: (goals: DashboardGoal[]) => DashboardGoal[]) => void
   // Patch the persisted view (filter / sort) state.
@@ -959,7 +967,7 @@ function GoalsSection(props: {
             draggingId={draggingId}
             focusGoalId={focusGoalId}
             drop={drop}
-            estimateTaskTime={props.estimateTaskTime}
+            estimateTaskSize={props.estimateTaskSize}
             onCardPatch={patchGoal}
             onRemove={removeGoal}
             onAdd={props.onAddGoal}
@@ -2337,7 +2345,8 @@ function Dashboard(props: {
         dueDate: "",
         log: [],
         cadence,
-        estimatedMinutes: 0,
+        kind: "personal",
+        size: "",
       }
       setGoals((gs) => [...gs, goal])
       setFocusGoalId(goal.id)
@@ -2415,19 +2424,21 @@ function Dashboard(props: {
     },
     [bridgeOrigin],
   )
-  // AI task-time estimate — feeds the goal card's ✨ button.
-  const estimateTaskTime = useCallback(
-    async (title: string, note: string): Promise<number | null> => {
+  // AI task-size estimate — feeds the goal card's ✨ button. Bridge
+  // returns one of "S" | "M" | "L"; anything else means "couldn't tell".
+  const estimateTaskSize = useCallback(
+    async (title: string, note: string): Promise<GoalSize | null> => {
       if (!bridgeOrigin) return null
       try {
-        const res = await fetch(`${bridgeOrigin}/api/tasks/estimate-time`, {
+        const res = await fetch(`${bridgeOrigin}/api/tasks/estimate-size`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ title, note }),
         })
         if (!res.ok) return null
         const json = await res.json()
-        return typeof json?.minutes === "number" ? json.minutes : null
+        const s = json?.size
+        return s === "S" || s === "M" || s === "L" ? s : null
       } catch {
         return null
       }
@@ -2469,7 +2480,7 @@ function Dashboard(props: {
           view={data.view}
           canWrite={canWrite}
           focusGoalId={focusGoalId}
-          estimateTaskTime={bridgeOrigin ? estimateTaskTime : null}
+          estimateTaskSize={bridgeOrigin ? estimateTaskSize : null}
           setGoals={setGoals}
           setView={setView}
           onAddGoal={addGoal}

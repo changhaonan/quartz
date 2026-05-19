@@ -716,62 +716,111 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   color: var(--gray);
 }
 
-// Goal card — estimated time control (input + AI ✨ button) and the
-// read-only "⏱ 2h" pill the viewer sees.
-.dash-est {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.18rem;
+// Goal card — kind (personal / work). Mirrors .dash-prio styling. The
+// work variant gets a tertiary-coloured outline so a work card is
+// recognisable at a glance.
+.dash-kind {
+  font: inherit;
+  font-size: 0.7rem;
   border: 1px solid $dash-hairline;
   border-radius: 5px;
-  padding: 0.04rem 0.14rem;
+  padding: 0.14rem 0.3rem;
   background: transparent;
-  transition: border-color 0.12s;
+  color: var(--gray);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s;
 
-  &:focus-within {
-    border-color: var(--tertiary);
-  }
-
-  &__input {
-    width: 3.2rem;
-    font-size: 0.7rem;
-    color: var(--darkgray);
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    padding: 0.04rem 0.2rem;
-    border-color: transparent;
-
-    &:focus {
-      background: transparent;
-      border-color: transparent;
-    }
-  }
-
-  &__ai {
-    flex: none;
-    border: none;
-    background: none;
-    padding: 0 0.15rem;
-    font-size: 0.7rem;
-    line-height: 1;
-    color: var(--gray);
-    cursor: pointer;
-    transition: color 0.12s;
-
-    &:hover:not(:disabled) {
-      color: var(--secondary);
-    }
-    &:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
+  &--work {
+    color: var(--tertiary);
+    border-color: color-mix(in srgb, var(--tertiary) 45%, transparent);
   }
 }
 
-.dash-estpill {
+.dash-kindpill {
   font-size: 0.68rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+
+  &--work {
+    background: color-mix(in srgb, var(--tertiary) 16%, transparent);
+    color: var(--tertiary);
+  }
+}
+
+// Goal card — size segmented control (S / M / L) + AI ✨ button. The
+// active tier is coloured (S green / M amber / L red) so the size
+// matches the visual weight.
+.dash-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.dash-size .dash-seg--size {
+  padding: 1px;
+  gap: 1px;
+
+  .dash-seg__btn {
+    flex: 0 0 auto;
+    min-width: 1.45rem;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.68rem;
+    line-height: 1.15;
+  }
+}
+
+.dash-seg__btn--size-S.is-active {
+  color: #2b8a3e;
+}
+.dash-seg__btn--size-M.is-active {
+  color: #d98b22;
+}
+.dash-seg__btn--size-L.is-active {
+  color: #c92a2a;
+}
+
+.dash-size__ai {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 0.15rem;
+  font-size: 0.7rem;
+  line-height: 1;
   color: var(--gray);
-  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 0.12s;
+
+  &:hover:not(:disabled) {
+    color: var(--secondary);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+
+.dash-sizepill {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: $dash-fill;
+  color: var(--darkgray);
+  font-weight: 600;
+
+  &--S {
+    background: color-mix(in srgb, #2f9e44 18%, transparent);
+    color: #2b8a3e;
+  }
+  &--M {
+    background: color-mix(in srgb, #f0ad4e 22%, transparent);
+    color: #d98b22;
+  }
+  &--L {
+    background: color-mix(in srgb, #d9534f 16%, transparent);
+    color: #c92a2a;
+  }
 }
 
 // Tags — wrapping chips plus an inline add-input.
