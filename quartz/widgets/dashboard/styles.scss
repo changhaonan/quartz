@@ -1464,8 +1464,13 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     border-left-color: var(--tertiary);
   }
   &--alert,
-  &--critical {
+  &--critical,
+  &--danger {
     border-left-color: #d9534f;
+  }
+  &--ok,
+  &--good {
+    border-left-color: #2f9e44;
   }
 }
 
