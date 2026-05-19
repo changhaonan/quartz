@@ -5,7 +5,7 @@
   // Tight gaps + a generous terminal row: the embedded PTY pane is the
   // one section that benefits from every extra pixel (a cramped TUI
   // redraws — and scrolls — far more aggressively).
-  gap: 0.55rem;
+  gap: 0.45rem;
   grid-template-rows: auto auto auto minmax(24rem, 1fr) auto auto auto;
   height: 100%;
   min-height: 0;
