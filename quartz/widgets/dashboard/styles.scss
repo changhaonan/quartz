@@ -716,6 +716,64 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   color: var(--gray);
 }
 
+// Goal card — estimated time control (input + AI ✨ button) and the
+// read-only "⏱ 2h" pill the viewer sees.
+.dash-est {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  border: 1px solid $dash-hairline;
+  border-radius: 5px;
+  padding: 0.04rem 0.14rem;
+  background: transparent;
+  transition: border-color 0.12s;
+
+  &:focus-within {
+    border-color: var(--tertiary);
+  }
+
+  &__input {
+    width: 3.2rem;
+    font-size: 0.7rem;
+    color: var(--darkgray);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    padding: 0.04rem 0.2rem;
+    border-color: transparent;
+
+    &:focus {
+      background: transparent;
+      border-color: transparent;
+    }
+  }
+
+  &__ai {
+    flex: none;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    font-size: 0.7rem;
+    line-height: 1;
+    color: var(--gray);
+    cursor: pointer;
+    transition: color 0.12s;
+
+    &:hover:not(:disabled) {
+      color: var(--secondary);
+    }
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  }
+}
+
+.dash-estpill {
+  font-size: 0.68rem;
+  color: var(--gray);
+  font-variant-numeric: tabular-nums;
+}
+
 // Tags — wrapping chips plus an inline add-input.
 .dash-tags {
   display: flex;

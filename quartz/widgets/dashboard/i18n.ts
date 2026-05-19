@@ -40,6 +40,9 @@ export interface Strings {
   goalNoteAria: string
   removeGoal: string
   dragHint: string
+  estimateAria: string
+  estimatePlaceholder: string
+  estimateAIHint: string
   status: Record<GoalStatus, string>
   statusAria: string
   priority: Record<"high" | "mid" | "low", string>
@@ -197,6 +200,9 @@ const zhCN: Strings = {
   goalNoteAria: "目标备注",
   removeGoal: "删除目标",
   dragHint: "拖动以在列间移动",
+  estimateAria: "预估完成时间(支持 45m / 2h / 1.5h)",
+  estimatePlaceholder: "预估",
+  estimateAIHint: "用 AI 估算时长",
   status: { todo: "未开始", doing: "进行中", done: "已完成" },
   statusAria: "状态",
   priority: { high: "高", mid: "中", low: "低" },
@@ -361,6 +367,9 @@ const enUS: Strings = {
   goalNoteAria: "Goal note",
   removeGoal: "Delete goal",
   dragHint: "Drag to move between columns",
+  estimateAria: "Estimated time (e.g. 45m, 2h, 1.5h)",
+  estimatePlaceholder: "Est.",
+  estimateAIHint: "Estimate with AI",
   status: { todo: "To do", doing: "In progress", done: "Done" },
   statusAria: "Status",
   priority: { high: "High", mid: "Medium", low: "Low" },

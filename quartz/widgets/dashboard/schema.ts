@@ -46,6 +46,9 @@ export const DashboardGoalSchema = z.object({
   log: z.array(GoalLogEntrySchema).default([]),
   // Which board column the goal shows under: 每日 / 每周 / 主要.
   cadence: GoalCadenceSchema,
+  // Estimated time to complete, in minutes. 0 = unset. Editable in-place;
+  // ✨ button asks codex for an estimate from the title + note.
+  estimatedMinutes: z.number().default(0),
 })
 
 // View toolbar state for the goals board — filters + sort. Persisted with the
