@@ -860,13 +860,55 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 }
 
 // --- Health (charts) -------------------------------------------------------
+// The Health section's sub-cards (weight + energy balance + meals +
+// exercise) sit in a 2-column grid so the section reads as one compact
+// region instead of a column of tall full-width tiles. Mini cards
+// (steps/sleep/HR) keep their own 3-col grid below.
+.dash-health-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  align-items: start;
+
+  // Asymmetric placement: Energy Balance is the headline of the section
+  // (4-5 rows of intake/expenditure/projection); it takes the whole right
+  // column. Weight (short — just a number + chart) + Calorie + Exercise
+  // stack in the left column so the heights pair off instead of leaving
+  // a tall empty gap below the Weight card.
+  > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+  > :nth-child(3) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  > :nth-child(4) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+
+    > * {
+      grid-column: auto;
+      grid-row: auto;
+    }
+  }
+}
+
 // Weight is the headline: a soft-filled card with a big number and an area
 // chart that bleeds edge-to-edge. Steps / sleep / heart rate sit below as
 // smaller cards, each with a sparkline.
 .dash-health__hero {
   background: $dash-fill;
   border-radius: 12px;
-  padding: 0.85rem 1rem 0;
+  padding: 0.6rem 1rem 0;
   overflow: hidden;
 }
 
@@ -989,10 +1031,10 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 .dash-cal {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   background: $dash-fill;
   border-radius: 12px;
-  padding: 0.75rem 0.9rem 0.6rem;
+  padding: 0.55rem 0.75rem 0.45rem;
 
   &__head {
     display: flex;
@@ -1163,10 +1205,10 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 .dash-energy {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.35rem;
   background: $dash-fill;
   border-radius: 12px;
-  padding: 0.75rem 0.9rem 0.6rem;
+  padding: 0.55rem 0.75rem 0.45rem;
 
   &__head {
     display: flex;

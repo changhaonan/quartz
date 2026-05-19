@@ -915,9 +915,8 @@ function TrendChart(props: { values: number[]; height: number; fill?: boolean })
   const W = 300
   const H = height
   const pad = 4
-  if (values.length < 2) {
-    return <div className="dash-chart dash-chart--empty" style={{ height }} />
-  }
+  // No data → don't reserve dead space.
+  if (values.length < 2) return null
   const min = Math.min(...values)
   const max = Math.max(...values)
   const span = max - min || 1
@@ -1562,43 +1561,45 @@ function HealthSection(props: {
     <section className="dash-section">
       <h2>{t.healthTitle}</h2>
 
-      <WeightCard
-        series={series}
-        todayKg={todayWeight?.kg ?? null}
-        canWrite={canWrite}
-        onSetToday={setTodayWeight}
-      />
+      <div className="dash-health-grid">
+        <WeightCard
+          series={series}
+          todayKg={todayWeight?.kg ?? null}
+          canWrite={canWrite}
+          onSetToday={setTodayWeight}
+        />
 
-      <EnergyBalanceCard
-        weightKg={latestWeight}
-        profile={profile}
-        mealLog={mealLog}
-        exerciseLog={exerciseLog}
-        samples={samples}
-        canWrite={canWrite}
-        setProfile={props.setProfile}
-      />
+        <EnergyBalanceCard
+          weightKg={latestWeight}
+          profile={profile}
+          mealLog={mealLog}
+          exerciseLog={exerciseLog}
+          samples={samples}
+          canWrite={canWrite}
+          setProfile={props.setProfile}
+        />
 
-      <CalorieCard
-        entries={todayMeals}
-        canWrite={canWrite}
-        focusMealId={focusMealId}
-        estimate={props.estimateKcal}
-        onPatch={patchMeal}
-        onRemove={removeMeal}
-        onAdd={props.onAddMeal}
-      />
+        <CalorieCard
+          entries={todayMeals}
+          canWrite={canWrite}
+          focusMealId={focusMealId}
+          estimate={props.estimateKcal}
+          onPatch={patchMeal}
+          onRemove={removeMeal}
+          onAdd={props.onAddMeal}
+        />
 
-      <ExerciseCard
-        entries={todayExercises}
-        importedKcal={activeEnergyOnDate(samples, today)}
-        canWrite={canWrite}
-        focusExerciseId={focusExerciseId}
-        estimate={props.estimateKcal}
-        onPatch={patchExercise}
-        onRemove={removeExercise}
-        onAdd={props.onAddExercise}
-      />
+        <ExerciseCard
+          entries={todayExercises}
+          importedKcal={activeEnergyOnDate(samples, today)}
+          canWrite={canWrite}
+          focusExerciseId={focusExerciseId}
+          estimate={props.estimateKcal}
+          onPatch={patchExercise}
+          onRemove={removeExercise}
+          onAdd={props.onAddExercise}
+        />
+      </div>
 
       {hasImport && (
         <div className="dash-health__grid">
