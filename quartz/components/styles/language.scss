@@ -1,24 +1,21 @@
-// Global language toggle, sat in the page chrome next to the darkmode button.
-// Both labels are emitted; CSS shows the one matching <html data-lang>, set
-// before paint by language.inline.ts — so there's no flash.
-// Sits in the chrome next to the darkmode / readermode buttons — match
-// their 20×32 box and centre the 中/EN glyph the way they centre their
-// icons, so the row of controls lines up.
+// Global language toggle, sat in the page chrome next to the darkmode
+// button. Both labels are emitted; CSS shows the one matching
+// <html data-lang>, set before paint by language.inline.ts — no flash.
+//
+// Structurally mirrors .darkmode: a 20×32 button whose glyph is
+// absolutely positioned and centred. Keeping the glyph out of flow
+// means the button has no in-flow content, so it shares the icon
+// buttons' line-box/baseline and the control row lines up exactly.
 .langtoggle {
   cursor: pointer;
   padding: 0;
   margin: 0;
   background: none;
   border: none;
-  flex-shrink: 0;
+  position: relative;
   width: 20px;
   height: 32px;
-  // block-level flex: an inline-level button with in-flow text picks up
-  // a baseline/descender gap the icon-only sibling buttons don't have,
-  // which left the glyph sitting ~2px low in the control row.
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-shrink: 0;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--darkgray);
@@ -28,10 +25,14 @@
   }
 }
 
-:root[data-lang="zh-CN"] .langtoggle > .lang-zh {
-  display: inline;
-}
-
+:root[data-lang="zh-CN"] .langtoggle > .lang-zh,
 :root[data-lang="en-US"] .langtoggle > .lang-en {
-  display: inline;
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  line-height: 1;
 }
