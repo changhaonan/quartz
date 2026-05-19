@@ -203,11 +203,10 @@ function isWorkGoal(g: DashboardGoal): boolean {
 
 const GOAL_SIZES: Array<Exclude<GoalSize, "">> = ["S", "M", "L"]
 
-// Abstract "load units" per goal — hour-shaped ratios but never displayed
-// as hours. Unset defaults to M so a sized-soon goal isn't undersold.
-const SIZE_WEIGHTS: Record<GoalSize, number> = { "": 8, S: 1, M: 8, L: 40 }
-function goalLoadUnits(g: DashboardGoal): number {
-  return SIZE_WEIGHTS[g.size] ?? 8
+// Treat unset size as M so a sized-soon goal isn't undercounted.
+type SizedTier = "S" | "M" | "L"
+function tierOf(g: DashboardGoal): SizedTier {
+  return (g.size || "M") as SizedTier
 }
 
 // Tone for a 0..∞ load percent. <70 green, 70-100 amber, >100 red.
@@ -215,6 +214,24 @@ function loadTone(pct: number): "good" | "watch" | "warn" {
   if (pct > 100) return "warn"
   if (pct >= 70) return "watch"
   return "good"
+}
+
+// Section load% per kind: count "doing" goals into L/M/S buckets and
+// take the max bucket-ratio (doing / cap). The most-stretched tier
+// drives the colour and the headline %. Tiers with cap 0 are skipped.
+function tierLoad(
+  doing: DashboardGoal[],
+  match: (g: DashboardGoal) => boolean,
+  cap: { L: number; M: number; S: number },
+): { c: { L: number; M: number; S: number }; pct: number } {
+  const c = { L: 0, M: 0, S: 0 }
+  for (const g of doing) if (match(g)) c[tierOf(g)]++
+  const ratios: number[] = []
+  for (const t of ["L", "M", "S"] as const) {
+    if (cap[t] > 0) ratios.push(c[t] / cap[t])
+  }
+  const pct = ratios.length ? Math.round(Math.max(...ratios) * 100) : 0
+  return { c, pct }
 }
 
 // ---------------------------------------------------------------------------
@@ -879,20 +896,15 @@ function GoalsSection(props: {
     view.filterStatus !== "all" || view.filterPriority !== "all" || view.filterTag !== ""
   const visible = goals.filter((g) => matchesView(g, view))
 
-  // Summary pills: load% per kind (active goals' size weights /
-  // configured weekly capacity), plus overdue %. "main" cadence is
-  // long-term — explicitly excluded from this-week load. Done goals drop.
+  // Summary pills: per-kind tier-aware load. Only "doing" counts as
+  // load (todo / done don't), and "main" cadence is long-term so it's
+  // out of the in-progress picture. Pill % = max stretched tier; the
+  // L·M·S breakdown is shown inline.
   const today = todayISO()
   const activeGoals = goals.filter((g) => g.status !== "done")
-  const counted = activeGoals.filter((g) => g.cadence !== "main")
-  const workLoad = counted.filter(isWorkGoal).reduce((s, g) => s + goalLoadUnits(g), 0)
-  const personalLoad = counted
-    .filter((g) => !isWorkGoal(g))
-    .reduce((s, g) => s + goalLoadUnits(g), 0)
-  const workCap = profile.weeklyWorkCapacity > 0 ? profile.weeklyWorkCapacity : 30
-  const personalCap = profile.weeklyPersonalCapacity > 0 ? profile.weeklyPersonalCapacity : 10
-  const workPct = Math.round((workLoad / workCap) * 100)
-  const personalPct = Math.round((personalLoad / personalCap) * 100)
+  const doing = goals.filter((g) => g.status === "doing" && g.cadence !== "main")
+  const work = tierLoad(doing, isWorkGoal, profile.workCapacity)
+  const personal = tierLoad(doing, (g) => !isWorkGoal(g), profile.personalCapacity)
   const withDue = activeGoals.filter((g) => g.dueDate)
   const overdueCount = withDue.filter((g) => g.dueDate < today).length
   const overdueRate = withDue.length > 0 ? Math.round((overdueCount / withDue.length) * 100) : 0
@@ -966,8 +978,30 @@ function GoalsSection(props: {
         )}
       </div>
       <div className="dash-summary">
-        <SummaryPill label={t.summaryWork} value={`${workPct}%`} tone={loadTone(workPct)} />
-        <SummaryPill label={t.summaryPersonal} value={`${personalPct}%`} tone={loadTone(personalPct)} />
+        <SummaryPill
+          label={t.summaryWork}
+          value={
+            <>
+              {work.pct}%{" "}
+              <span className="dash-summary__detail">
+                {work.c.L}L · {work.c.M}M · {work.c.S}S
+              </span>
+            </>
+          }
+          tone={loadTone(work.pct)}
+        />
+        <SummaryPill
+          label={t.summaryPersonal}
+          value={
+            <>
+              {personal.pct}%{" "}
+              <span className="dash-summary__detail">
+                {personal.c.L}L · {personal.c.M}M · {personal.c.S}S
+              </span>
+            </>
+          }
+          tone={loadTone(personal.pct)}
+        />
         <SummaryPill
           label={t.summaryOverdue}
           value={`${overdueRate}%`}
@@ -1516,36 +1550,52 @@ function ProfileEditor(props: {
           <option value="female">{t.profileSexValues.female}</option>
         </select>
       </label>
-      <label className="dash-profile__field">
-        <span className="dash-profile__label">{t.profileWorkCapacity}</span>
-        <input
-          type="number"
-          className="dash-profile__input"
-          value={profile.weeklyWorkCapacity || ""}
-          aria-label={t.profileWorkCapacity}
-          placeholder="30"
-          min={0}
-          max={500}
-          onChange={(e) =>
-            props.setProfile({ weeklyWorkCapacity: parseFloat(e.currentTarget.value) || 0 })
-          }
-        />
-      </label>
-      <label className="dash-profile__field">
-        <span className="dash-profile__label">{t.profilePersonalCapacity}</span>
-        <input
-          type="number"
-          className="dash-profile__input"
-          value={profile.weeklyPersonalCapacity || ""}
-          aria-label={t.profilePersonalCapacity}
-          placeholder="10"
-          min={0}
-          max={500}
-          onChange={(e) =>
-            props.setProfile({ weeklyPersonalCapacity: parseFloat(e.currentTarget.value) || 0 })
-          }
-        />
-      </label>
+      <div className="dash-profile__caprow">
+        <span className="dash-profile__caplabel">{t.profileWorkCapacityLabel}</span>
+        {(["L", "M", "S"] as const).map((tier) => (
+          <label key={tier} className="dash-profile__capcell">
+            <span>{tier}</span>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={profile.workCapacity?.[tier] ?? 0}
+              aria-label={`${t.profileWorkCapacityLabel} ${tier}`}
+              onChange={(e) =>
+                props.setProfile({
+                  workCapacity: {
+                    ...(profile.workCapacity ?? { L: 1, M: 1, S: 3 }),
+                    [tier]: parseFloat(e.currentTarget.value) || 0,
+                  },
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
+      <div className="dash-profile__caprow">
+        <span className="dash-profile__caplabel">{t.profilePersonalCapacityLabel}</span>
+        {(["L", "M", "S"] as const).map((tier) => (
+          <label key={tier} className="dash-profile__capcell">
+            <span>{tier}</span>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={profile.personalCapacity?.[tier] ?? 0}
+              aria-label={`${t.profilePersonalCapacityLabel} ${tier}`}
+              onChange={(e) =>
+                props.setProfile({
+                  personalCapacity: {
+                    ...(profile.personalCapacity ?? { L: 1, M: 1, S: 2 }),
+                    [tier]: parseFloat(e.currentTarget.value) || 0,
+                  },
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
       <p className="dash-profile__hint">{t.profileCapacityHint}</p>
     </div>
   )

@@ -128,11 +128,23 @@ export const DashboardProfileSchema = z.object({
   heightCm: z.number().default(0),
   birthDate: z.string().default(""), // YYYY-MM-DD
   sex: z.enum(["male", "female", ""]).default(""),
-  // "Load units" per week the user is willing to carry, per kind. Units
-  // are abstract (S=1, M=8, L=40 — hour-shaped but never displayed as
-  // hours); these are just the denominators behind the goals pills.
-  weeklyWorkCapacity: z.number().default(30),
-  weeklyPersonalCapacity: z.number().default(10),
+  // Concurrent-in-progress caps per goal size, per kind. The load% on
+  // the summary pill = max over tiers of (doing-count / cap). "Doing" is
+  // the only status that counts — todo (not started) is not load.
+  workCapacity: z
+    .object({
+      L: z.number().default(1),
+      M: z.number().default(1),
+      S: z.number().default(3),
+    })
+    .default({ L: 1, M: 1, S: 3 }),
+  personalCapacity: z
+    .object({
+      L: z.number().default(1),
+      M: z.number().default(1),
+      S: z.number().default(2),
+    })
+    .default({ L: 1, M: 1, S: 2 }),
 })
 export type DashboardProfile = z.infer<typeof DashboardProfileSchema>
 
@@ -149,8 +161,8 @@ export const DashboardDataSchema = z.object({
     heightCm: 0,
     birthDate: "",
     sex: "",
-    weeklyWorkCapacity: 30,
-    weeklyPersonalCapacity: 10,
+    workCapacity: { L: 1, M: 1, S: 3 },
+    personalCapacity: { L: 1, M: 1, S: 2 },
   }),
   view: DashboardViewSchema.default({
     filterStatus: "all",

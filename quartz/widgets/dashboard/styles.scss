@@ -196,6 +196,15 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   margin-left: 0.1rem;
 }
 
+// Tier breakdown after the headline % — softer than the value so the
+// load% reads first; the L·M·S detail is muted context.
+.dash-summary__detail {
+  margin-left: 0.15rem;
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--gray);
+}
+
 .dash-summary__pill--good .dash-summary__value {
   color: #2f9e44;
 }
@@ -1494,6 +1503,42 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     margin: 0.2rem 0 0;
     font-size: 0.7rem;
     color: var(--gray);
+  }
+
+  // Per-tier capacity row: label + three small L/M/S number inputs.
+  &__caprow {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+
+  &__caplabel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__capcell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    color: var(--gray);
+
+    > input {
+      font: inherit;
+      font-size: 0.82rem;
+      width: 2.4rem;
+      border: 1px solid var(--gray);
+      background: var(--light);
+      border-radius: 5px;
+      padding: 0.1rem 0.35rem;
+      color: var(--darkgray);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
   }
 }
 
