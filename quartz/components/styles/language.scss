@@ -13,7 +13,10 @@
   flex-shrink: 0;
   width: 20px;
   height: 32px;
-  display: inline-flex;
+  // block-level flex: an inline-level button with in-flow text picks up
+  // a baseline/descender gap the icon-only sibling buttons don't have,
+  // which left the glyph sitting ~2px low in the control row.
+  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.8rem;
