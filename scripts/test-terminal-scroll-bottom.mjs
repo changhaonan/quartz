@@ -1,13 +1,14 @@
-// e2e: the embedded terminal must land at the BOTTOM on first attach,
-// after the bridge replays scrollback — not stuck at the top.
+// e2e: the embedded terminal must (1) not visibly bounce between top and
+// bottom while it attaches, and (2) settle pinned to the bottom.
 //
-// History (claude_pty/docs/terminal-typing-flicker.md):
-//   - 1610abd: scrollToBottom() after terminal_replay / screen_snapshot.
-//   - ca731ce: re-pin to bottom after fit() — the settle-timer /
-//     ResizeObserver fire a fit() right after the replay, and the
-//     reflow was shoving the viewport back to the top on first load.
+// History (claude_pty/docs/terminal-typing-flicker.md + fixes):
+//   - 1610abd  scrollToBottom() after terminal_replay / screen_snapshot
+//   - 543b4d1  debounce fits — the iframe header's metadata-driven
+//              resizes were firing a fit (reflow + re-snapshot) per tick,
+//              making the terminal jump top<->bottom for ~1s on attach.
 //
-// This test fails if EITHER regresses. Runs against the staging bridge.
+// Fails if the terminal bounces (a "jump to top" after it was at the
+// bottom) or ends up anywhere but the bottom. Runs against the bridge.
 import { chromium } from "playwright"
 import { setTimeout as sleep } from "node:timers/promises"
 
@@ -21,7 +22,6 @@ const ok = (m) => console.log("✓", m)
 const sessions = await fetch(`${BRIDGE}/api/sessions`)
   .then((r) => r.json())
   .then((j) => j.sessions || j)
-// a session with a populated TUI gives us real scrollback to mis-place
 const target = sessions.find((s) => s.state === "waiting_input") || sessions[0]
 const sessionId = target?.sessionId || target?.id
 if (!sessionId) {
@@ -37,44 +37,49 @@ await page.goto(`${BRIDGE}/bridge/session?session=${encodeURIComponent(sessionId
 })
 await page.waitForSelector(".xterm-viewport", { timeout: 8000 })
 
-const sample = () =>
-  page.evaluate(() => {
+// Poll fast from the moment of attach through the settle window.
+const trace = []
+for (let i = 0; i < 130; i++) {
+  const m = await page.evaluate(() => {
     const v = document.querySelector(".xterm-viewport")
-    return v ? { scrollTop: v.scrollTop, scrollHeight: v.scrollHeight, clientHeight: v.clientHeight } : null
+    return v ? { scrollTop: v.scrollTop, scrollH: v.scrollHeight, clientH: v.clientHeight } : null
   })
-
-// Sample across the whole first-attach settle window: replay lands, then
-// the settle-timer + ResizeObserver fire fits. The viewport must be at the
-// bottom by the time it settles — and must not be left at the top.
-let m = null
-let everStuckAtTop = false
-let elapsed = 0
-for (const t of [1000, 2000, 3500, 5000, 7000]) {
-  await sleep(t - elapsed)
-  elapsed = t
-  m = await sample()
-  const scrollable = m ? m.scrollHeight - m.clientHeight : 0
-  const offBottom = m ? scrollable - m.scrollTop : 0
-  const tag =
-    scrollable <= 4 ? "(fits one screen)" : offBottom <= 8 ? "BOTTOM" : m.scrollTop === 0 ? "TOP" : `${offBottom}px off`
-  console.log(`  t=${t}ms`, JSON.stringify(m), tag)
-  if (scrollable > 4 && m.scrollTop === 0) everStuckAtTop = true
+  if (m) trace.push(m)
+  await sleep(40)
 }
 
-if (!m) {
+const last = trace[trace.length - 1]
+if (!last) {
   fail(".xterm-viewport never appeared")
 } else {
-  const scrollable = m.scrollHeight - m.clientHeight
-  const offBottom = scrollable - m.scrollTop
-  if (scrollable <= 4) {
-    ok("inconclusive-but-safe: terminal content fits one screen (no scrollback to mis-place)")
-  } else if (offBottom <= 8) {
-    ok(`first attach settled at the BOTTOM (scrollTop=${m.scrollTop}/${scrollable}, ${offBottom}px off)`)
-    if (everStuckAtTop) console.log("  note: was briefly at top mid-settle, then corrected — acceptable")
-  } else if (m.scrollTop === 0) {
-    fail(`terminal stuck at the TOP after first attach — the reported bug (scrollable=${scrollable}px)`)
+  const scrollable = last.scrollH - last.clientH
+  // A "jump to top": viewport drops near the top AFTER having reached the
+  // bottom — the visible bounce. Small tail-follow moves don't count.
+  let reachedBottom = false
+  let jumps = 0
+  let prevAtTop = false
+  for (const m of trace) {
+    const s = m.scrollH - m.clientH
+    if (s <= 60) continue // nothing to bounce within
+    const atBottom = s - m.scrollTop <= 12
+    const atTop = m.scrollTop <= 20
+    if (atBottom) reachedBottom = true
+    if (atTop && reachedBottom && !prevAtTop) jumps += 1
+    prevAtTop = atTop
+  }
+
+  const offBottom = scrollable - last.scrollTop
+  console.log(`  samples=${trace.length}  scrollable(final)=${scrollable}px  jumps-to-top=${jumps}`)
+  console.log(`  final: scrollTop=${last.scrollTop} (${offBottom}px off bottom)`)
+
+  if (scrollable <= 60) {
+    ok("inconclusive-but-safe: terminal content fits ~one screen (no scrollback to bounce)")
   } else {
-    fail(`terminal not at bottom after first attach: ${offBottom}px off (scrollable=${scrollable})`)
+    if (jumps === 0) ok("no top<->bottom bouncing during attach")
+    else fail(`terminal bounced to the top ${jumps}× during attach — the visible "闪屏"`)
+
+    if (offBottom <= 12) ok(`settled pinned to the BOTTOM (scrollTop=${last.scrollTop}/${scrollable})`)
+    else fail(`did not settle at the bottom: ${offBottom}px off`)
   }
 }
 
