@@ -1817,45 +1817,51 @@ function FinanceSection(props: { finance: Aggregate["finance"] }) {
         ))}
       </div>
 
-      {Object.keys(targets).length > 0 && (
-        <div className="dash-sub">
-          <h3>{t.financeBudget}</h3>
-          {Object.entries<any>(targets).map(([key, tp]) => {
-            const actual = Number(tp?.actual ?? 0)
-            const target = Number(tp?.target ?? 0)
-            const pct = target > 0 ? clampPct((actual / target) * 100) : 0
-            const over = target > 0 && actual > target
-            return (
-              <div className="dash-target" key={key}>
-                <span className="dash-target__label">{t.financeTargetLabel(key)}</span>
-                <div className="dash-bar">
-                  <div
-                    className={`dash-bar__fill${over ? " is-over" : ""}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <span className="dash-target__num">
-                  {money(actual)} / {money(target)}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {(Object.keys(targets).length > 0 || charges.length > 0) && (
+        // Budget bars + upcoming subscriptions sit side-by-side in 2 cols;
+        // each was a full-width list with a big empty middle before.
+        <div className="dash-finance-row">
+          {Object.keys(targets).length > 0 && (
+            <div className="dash-sub">
+              <h3>{t.financeBudget}</h3>
+              {Object.entries<any>(targets).map(([key, tp]) => {
+                const actual = Number(tp?.actual ?? 0)
+                const target = Number(tp?.target ?? 0)
+                const pct = target > 0 ? clampPct((actual / target) * 100) : 0
+                const over = target > 0 && actual > target
+                return (
+                  <div className="dash-target" key={key}>
+                    <span className="dash-target__label">{t.financeTargetLabel(key)}</span>
+                    <div className="dash-bar">
+                      <div
+                        className={`dash-bar__fill${over ? " is-over" : ""}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="dash-target__num">
+                      {money(actual)} / {money(target)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
-      {charges.length > 0 && (
-        <div className="dash-sub">
-          <h3>{t.financeCharges}</h3>
-          <ul className="dash-list">
-            {charges.slice(0, 6).map((c, idx) => (
-              <li key={idx}>
-                <span className="dash-list__main">{c?.description || c?.merchant}</span>
-                <span className="dash-list__meta">
-                  {money(c?.average_amount)} · {fmtDate(c?.predicted_next_date)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {charges.length > 0 && (
+            <div className="dash-sub">
+              <h3>{t.financeCharges}</h3>
+              <ul className="dash-list">
+                {charges.slice(0, 6).map((c, idx) => (
+                  <li key={idx}>
+                    <span className="dash-list__main">{c?.description || c?.merchant}</span>
+                    <span className="dash-list__meta">
+                      {money(c?.average_amount)} · {fmtDate(c?.predicted_next_date)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

@@ -1386,24 +1386,37 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   flex-direction: column;
 }
 
+// Budget bars + upcoming-charges sit side-by-side: full-width with
+// space-between left a big empty middle in each row.
+.dash-finance-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 1.2rem;
+  align-items: start;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dash-target {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin: 0.28rem 0;
+  gap: 0.55rem;
+  margin: 0.22rem 0;
 
   &__label {
     font-size: 0.76rem;
-    min-width: 9rem;
+    min-width: 5.5rem;
     color: var(--darkgray);
   }
 
   &__num {
     font-size: 0.72rem;
     color: var(--gray);
-    min-width: 8.5rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 }
 
