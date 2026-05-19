@@ -20,7 +20,11 @@ import type {
   GoalLogEntry,
   GoalPriority,
   GoalStatus,
+  MealEntry,
+  MealType,
+  WeightEntry,
 } from "./schema"
+import { MEAL_TYPES } from "./schema"
 import { getStrings, type DashLocale, type Strings } from "./i18n"
 
 // ---------------------------------------------------------------------------
@@ -86,6 +90,14 @@ function fmtLogTime(iso: string): string {
   if (isNaN(d.getTime())) return ""
   const p = (n: number) => String(n).padStart(2, "0")
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// Today as a local YYYY-MM-DD string — the key health-log entries are filed
+// under (and the same date form the iOS Shortcut uses for imported samples).
+function todayISO(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 // ---------------------------------------------------------------------------
@@ -877,84 +889,273 @@ function TrendChart(props: { values: number[]; height: number; fill?: boolean })
   )
 }
 
-function HealthSection(props: { samples: HealthSample[] | null; error: string | null }) {
-  const t = useStrings()
-  const { samples, error } = props
+// Meal display order — breakfast → snack.
+const MEAL_ORDER: Record<MealType, number> = { breakfast: 0, lunch: 1, dinner: 2, snack: 3 }
 
-  if (error || samples === null || samples.length === 0) {
-    return (
-      <section className="dash-section">
-        <h2>{t.healthTitle}</h2>
-        <p className="dash-empty">
-          {error ? t.healthError(error) : samples === null ? t.healthLoading : t.healthEmpty}
-        </p>
-      </section>
-    )
+// Merge Apple-Health imported weights with manually-logged ones into one
+// date-ordered series. A manual entry wins for its date — so a correction, or
+// a day the phone didn't push, still lands on the trend.
+function mergedWeightSeries(
+  samples: HealthSample[] | null,
+  log: WeightEntry[],
+): Array<{ date: string; kg: number }> {
+  const byDate = new Map<string, number>()
+  for (const s of samples ?? []) {
+    if (typeof s.weight === "number" && s.date) byDate.set(s.date, s.weight)
+  }
+  for (const e of log) {
+    if (e.date && e.kg > 0) byDate.set(e.date, e.kg)
+  }
+  return [...byDate.entries()]
+    .map(([date, kg]) => ({ date, kg }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
+// Weight card — the merged trend plus a manual "today" entry. Imported and
+// hand-entered readings share one chart.
+function WeightCard(props: {
+  series: Array<{ date: string; kg: number }>
+  todayKg: number | null
+  canWrite: boolean
+  onSetToday: (kg: number) => void
+}) {
+  const t = useStrings()
+  const { series, todayKg, canWrite } = props
+  const latest = series.length ? series[series.length - 1].kg : null
+  const prev = series.length > 1 ? series[series.length - 2].kg : null
+  const delta = latest != null && prev != null ? latest - prev : null
+
+  return (
+    <div className="dash-health__hero">
+      <div className="dash-health__hero-head">
+        <span className="dash-health__label">{t.weight}</span>
+        {latest != null ? (
+          <>
+            <span className="dash-health__value">
+              {latest.toFixed(1)}
+              <span className="dash-health__unit">kg</span>
+            </span>
+            {delta != null && Math.abs(delta) >= 0.05 && (
+              <span className="dash-health__delta">
+                {delta > 0 ? "▲" : "▼"} {Math.abs(delta).toFixed(1)} kg
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="dash-health__value dash-health__value--muted">—</span>
+        )}
+      </div>
+      {canWrite && (
+        <div className="dash-hentry">
+          <span className="dash-hentry__label">{t.weightToday}</span>
+          <EditableField
+            className="dash-hentry__input"
+            value={todayKg != null ? String(todayKg) : ""}
+            placeholder="—"
+            ariaLabel={t.weightInputAria}
+            onCommit={(v) => props.onSetToday(parseFloat(v) || 0)}
+          />
+          <span className="dash-hentry__unit">kg</span>
+        </div>
+      )}
+      <div className="dash-health__chart">
+        <TrendChart values={series.slice(-30).map((p) => p.kg)} height={76} fill />
+      </div>
+    </div>
+  )
+}
+
+// Calorie card — today's meals grouped by slot, with the day's total. Each
+// row is an in-place editable meal: slot / food / kcal.
+function CalorieCard(props: {
+  entries: MealEntry[]
+  canWrite: boolean
+  focusMealId: string | null
+  onPatch: (id: string, partial: Partial<MealEntry>) => void
+  onRemove: (id: string) => void
+  onAdd: () => void
+}) {
+  const t = useStrings()
+  const { entries, canWrite, focusMealId } = props
+  const rows = [...entries].sort((a, b) => MEAL_ORDER[a.meal] - MEAL_ORDER[b.meal])
+  const total = rows.reduce((s, e) => s + (Number.isFinite(e.kcal) ? e.kcal : 0), 0)
+
+  return (
+    <div className="dash-cal">
+      <div className="dash-cal__head">
+        <span className="dash-health__label">
+          {t.calorieTitle} · {t.calorieToday}
+        </span>
+        <span className="dash-cal__total">
+          {total.toLocaleString("en-US")} <span className="dash-health__unit">kcal</span>
+        </span>
+      </div>
+      {rows.length === 0 && <p className="dash-empty">{t.calorieEmpty}</p>}
+      {rows.length > 0 && (
+        <div className="dash-cal__rows">
+          {rows.map((e) => (
+            <div className="dash-cal__row" key={e.id}>
+              {canWrite ? (
+                <>
+                  <select
+                    className="dash-cal__meal"
+                    value={e.meal}
+                    aria-label={t.mealTypeAria}
+                    onChange={(ev) =>
+                      props.onPatch(e.id, { meal: ev.currentTarget.value as MealType })
+                    }
+                  >
+                    {MEAL_TYPES.map((m) => (
+                      <option key={m} value={m}>
+                        {t.mealType[m]}
+                      </option>
+                    ))}
+                  </select>
+                  <EditableField
+                    className="dash-cal__food"
+                    value={e.food}
+                    placeholder={t.foodPlaceholder}
+                    ariaLabel={t.foodAria}
+                    focusOnMount={e.id === focusMealId}
+                    onCommit={(food) => props.onPatch(e.id, { food })}
+                  />
+                  <EditableField
+                    className="dash-cal__kcal"
+                    value={e.kcal ? String(e.kcal) : ""}
+                    placeholder="0"
+                    ariaLabel={t.kcalAria}
+                    onCommit={(v) =>
+                      props.onPatch(e.id, { kcal: Math.max(0, Math.round(parseFloat(v) || 0)) })
+                    }
+                  />
+                  <span className="dash-cal__unit">kcal</span>
+                  <button
+                    type="button"
+                    className="dash-cal__x"
+                    title={t.removeMeal}
+                    aria-label={t.removeMeal}
+                    onClick={() => props.onRemove(e.id)}
+                  >
+                    ✕
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="dash-cal__meal-ro">{t.mealType[e.meal]}</span>
+                  <span className="dash-cal__food-ro">{e.food}</span>
+                  <span className="dash-cal__kcal-ro">
+                    {(e.kcal || 0).toLocaleString("en-US")} kcal
+                  </span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {canWrite && (
+        <button type="button" className="dash-cal__add" onClick={props.onAdd}>
+          {t.addMeal}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Health — the manual log (weight + calories, entered right here) sits next to
+// the Apple Health metrics pushed from an iOS Shortcut (steps / sleep / HR).
+// ---------------------------------------------------------------------------
+function HealthSection(props: {
+  samples: HealthSample[] | null
+  error: string | null
+  weightLog: WeightEntry[]
+  mealLog: MealEntry[]
+  canWrite: boolean
+  focusMealId: string | null
+  setWeightLog: (mutate: (log: WeightEntry[]) => WeightEntry[]) => void
+  setMealLog: (mutate: (log: MealEntry[]) => MealEntry[]) => void
+  onAddMeal: () => void
+}) {
+  const t = useStrings()
+  const { samples, error, weightLog, mealLog, canWrite, focusMealId } = props
+  const today = todayISO()
+
+  const series = mergedWeightSeries(samples, weightLog)
+  const todayWeight = weightLog.find((e) => e.date === today) ?? null
+  const setTodayWeight = (kg: number) => {
+    props.setWeightLog((log) => {
+      const rest = log.filter((e) => e.date !== today)
+      // Clearing the field (kg ≤ 0) removes today's manual entry.
+      if (kg <= 0) return rest
+      return [...rest, { id: todayWeight?.id ?? `w-${Date.now()}`, date: today, kg }]
+    })
   }
 
-  const seriesOf = (key: "weight" | "steps" | "sleepHours" | "restingHR"): number[] =>
-    samples.map((s) => s[key]).filter((v): v is number => typeof v === "number")
+  const todayMeals = mealLog.filter((e) => e.date === today)
+  const patchMeal = (id: string, partial: Partial<MealEntry>) =>
+    props.setMealLog((log) => log.map((e) => (e.id === id ? { ...e, ...partial } : e)))
+  const removeMeal = (id: string) =>
+    props.setMealLog((log) => log.filter((e) => e.id !== id))
 
-  const weight = seriesOf("weight")
-  const wLatest = weight[weight.length - 1]
-  const wPrev = weight[weight.length - 2]
-  const wDelta = wLatest != null && wPrev != null ? wLatest - wPrev : null
+  // Apple Health mini metrics — shown only once the phone has pushed samples.
+  const importMetrics = HEALTH_MINI_METRICS.map((m) => ({
+    ...m,
+    vals: (samples ?? [])
+      .map((s) => s[m.key])
+      .filter((v): v is number => typeof v === "number"),
+  }))
+  const hasImport = importMetrics.some((m) => m.vals.length > 0)
 
   return (
     <section className="dash-section">
       <h2>{t.healthTitle}</h2>
 
-      <div className="dash-health__hero">
-        <div className="dash-health__hero-head">
-          <span className="dash-health__label">{t.weight}</span>
-          {wLatest != null ? (
-            <>
-              <span className="dash-health__value">
-                {wLatest.toFixed(1)}
-                <span className="dash-health__unit">kg</span>
-              </span>
-              {wDelta != null && Math.abs(wDelta) >= 0.05 && (
-                <span className="dash-health__delta">
-                  {wDelta > 0 ? "▲" : "▼"} {Math.abs(wDelta).toFixed(1)} kg
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="dash-health__value dash-health__value--muted">—</span>
-          )}
-        </div>
-        <div className="dash-health__chart">
-          <TrendChart values={weight.slice(-30)} height={76} fill />
-        </div>
-      </div>
+      <WeightCard
+        series={series}
+        todayKg={todayWeight?.kg ?? null}
+        canWrite={canWrite}
+        onSetToday={setTodayWeight}
+      />
 
-      <div className="dash-health__grid">
-        {HEALTH_MINI_METRICS.map((m) => {
-          const vals = seriesOf(m.key)
-          const latest = vals[vals.length - 1]
-          return (
-            <div className="dash-health__card" key={m.key}>
-              <div className="dash-health__label">{t.healthMetrics[m.key]}</div>
-              <div className="dash-health__value dash-health__value--sm">
-                {latest != null ? (
-                  <>
-                    {latest.toLocaleString("en-US", {
-                      minimumFractionDigits: m.digits,
-                      maximumFractionDigits: m.digits,
-                    })}
-                    {m.unit && <span className="dash-health__unit">{m.unit}</span>}
-                  </>
-                ) : (
-                  "—"
-                )}
+      <CalorieCard
+        entries={todayMeals}
+        canWrite={canWrite}
+        focusMealId={focusMealId}
+        onPatch={patchMeal}
+        onRemove={removeMeal}
+        onAdd={props.onAddMeal}
+      />
+
+      {hasImport && (
+        <div className="dash-health__grid">
+          {importMetrics.map((m) => {
+            const latest = m.vals[m.vals.length - 1]
+            return (
+              <div className="dash-health__card" key={m.key}>
+                <div className="dash-health__label">{t.healthMetrics[m.key]}</div>
+                <div className="dash-health__value dash-health__value--sm">
+                  {latest != null ? (
+                    <>
+                      {latest.toLocaleString("en-US", {
+                        minimumFractionDigits: m.digits,
+                        maximumFractionDigits: m.digits,
+                      })}
+                      {m.unit && <span className="dash-health__unit">{m.unit}</span>}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </div>
+                <div className="dash-health__spark">
+                  <TrendChart values={m.vals.slice(-20)} height={30} />
+                </div>
               </div>
-              <div className="dash-health__spark">
-                <TrendChart values={vals.slice(-20)} height={30} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
+
+      {error && <p className="dash-empty">{t.healthError(error)}</p>}
     </section>
   )
 }
@@ -1312,6 +1513,7 @@ function Dashboard(props: {
   // grab focus on mount.
   const [focusGoalId, setFocusGoalId] = useState<string | null>(null)
   const [focusMetricId, setFocusMetricId] = useState<string | null>(null)
+  const [focusMealId, setFocusMealId] = useState<string | null>(null)
 
   // Display locale comes from the global chrome toggle — track it in state so
   // the panel re-renders when the user switches language.
@@ -1477,6 +1679,27 @@ function Dashboard(props: {
     setMetrics((ms) => [...ms, metric])
     setFocusMetricId(metric.id)
   }, [setMetrics])
+  const setWeightLog = useCallback(
+    (mutate: (log: WeightEntry[]) => WeightEntry[]) =>
+      commit((cur) => ({ ...cur, weightLog: mutate(cur.weightLog) }), ["weightLog"]),
+    [commit],
+  )
+  const setMealLog = useCallback(
+    (mutate: (log: MealEntry[]) => MealEntry[]) =>
+      commit((cur) => ({ ...cur, mealLog: mutate(cur.mealLog) }), ["mealLog"]),
+    [commit],
+  )
+  const addMeal = useCallback(() => {
+    const entry: MealEntry = {
+      id: `meal-${Date.now()}`,
+      date: todayISO(),
+      meal: "breakfast",
+      food: "",
+      kcal: 0,
+    }
+    setMealLog((log) => [...log, entry])
+    setFocusMealId(entry.id)
+  }, [setMealLog])
 
   return (
     <StringsContext.Provider value={t}>
@@ -1516,7 +1739,17 @@ function Dashboard(props: {
           setView={setView}
           onAddGoal={addGoal}
         />
-        <HealthSection samples={health} error={healthErr} />
+        <HealthSection
+          samples={health}
+          error={healthErr}
+          weightLog={data.weightLog}
+          mealLog={data.mealLog}
+          canWrite={canWrite}
+          focusMealId={focusMealId}
+          setWeightLog={setWeightLog}
+          setMealLog={setMealLog}
+          onAddMeal={addMeal}
+        />
         <FinanceSection finance={agg?.finance} />
         <MetricsSection
           metrics={data.metrics}

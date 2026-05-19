@@ -6,7 +6,7 @@
 // This is the widget's *own* string table — Quartz's quartz/i18n covers only
 // Quartz core UI and has no dashboard keys.
 
-import type { DashboardView, GoalCadence, GoalStatus } from "./schema"
+import type { DashboardView, GoalCadence, GoalStatus, MealType } from "./schema"
 
 export type DashLocale = "zh-CN" | "en-US"
 
@@ -67,6 +67,21 @@ export interface Strings {
   healthEmpty: string
   weight: string
   healthMetrics: { steps: string; sleepHours: string; restingHR: string }
+
+  // --- health log (manual entry) ---
+  weightToday: string
+  weightInputAria: string
+  removeWeight: string
+  calorieTitle: string
+  calorieToday: string
+  calorieEmpty: string
+  addMeal: string
+  mealType: Record<MealType, string>
+  mealTypeAria: string
+  foodPlaceholder: string
+  foodAria: string
+  kcalAria: string
+  removeMeal: string
 
   // --- finance ---
   financeTitle: string
@@ -164,6 +179,20 @@ const zhCN: Strings = {
     "还没有健康数据。在 iPhone 上用「快捷指令」把体重等数据 POST 到 bridge 的 /api/metrics/health,刷新后即可在这里看到趋势。",
   weight: "体重",
   healthMetrics: { steps: "步数", sleepHours: "睡眠", restingHR: "静息心率" },
+
+  weightToday: "今天",
+  weightInputAria: "今天的体重(kg)",
+  removeWeight: "清除今天的体重",
+  calorieTitle: "卡路里",
+  calorieToday: "今天",
+  calorieEmpty: "今天还没有记录。",
+  addMeal: "+ 添加一餐",
+  mealType: { breakfast: "早餐", lunch: "午餐", dinner: "晚餐", snack: "加餐" },
+  mealTypeAria: "餐次",
+  foodPlaceholder: "吃了什么…",
+  foodAria: "食物",
+  kcalAria: "卡路里(kcal)",
+  removeMeal: "删除这一餐",
 
   financeTitle: "财务",
   financeParseError: (msg) => `财务文件解析失败:${msg}`,
@@ -263,6 +292,20 @@ const enUS: Strings = {
     "No health data yet. On iPhone, use a Shortcut to POST weight and other samples to the bridge at /api/metrics/health, then refresh to see trends here.",
   weight: "Weight",
   healthMetrics: { steps: "Steps", sleepHours: "Sleep", restingHR: "Resting HR" },
+
+  weightToday: "Today",
+  weightInputAria: "Today's weight (kg)",
+  removeWeight: "Clear today's weight",
+  calorieTitle: "Calories",
+  calorieToday: "Today",
+  calorieEmpty: "Nothing logged today.",
+  addMeal: "+ Add meal",
+  mealType: { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" },
+  mealTypeAria: "Meal",
+  foodPlaceholder: "What did you eat…",
+  foodAria: "Food",
+  kcalAria: "Calories (kcal)",
+  removeMeal: "Delete this meal",
 
   financeTitle: "Finance",
   financeParseError: (msg) => `Finance file failed to parse: ${msg}`,

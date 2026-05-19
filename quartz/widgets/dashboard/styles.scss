@@ -953,6 +953,165 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   }
 }
 
+// --- Health: manual entry --------------------------------------------------
+// Weight "today" field — a small inline editable number under the headline,
+// sitting in the hero card's padded zone above the chart.
+.dash-hentry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+
+  &__label {
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+  &__input {
+    width: 4.6rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  &__unit {
+    font-size: 0.72rem;
+    color: var(--gray);
+  }
+}
+
+// Calorie card — a soft-filled tile: a total in the header, then one
+// in-place editable row per meal (slot select / food / kcal).
+.dash-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: $dash-fill;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem 0.6rem;
+
+  &__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__total {
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.16rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--lightgray) 45%, transparent);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  // Editable controls.
+  &__meal {
+    flex: none;
+    width: 4.4rem;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--darkgray);
+    background: transparent;
+    border: 1px solid $dash-hairline;
+    border-radius: 5px;
+    padding: 0.12rem 0.2rem;
+    cursor: pointer;
+  }
+  &__food {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.83rem;
+  }
+  &__kcal {
+    flex: none;
+    width: 3.6rem;
+    font-size: 0.83rem;
+    font-weight: 600;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  &__unit {
+    flex: none;
+    font-size: 0.68rem;
+    color: var(--gray);
+  }
+  &__x {
+    flex: none;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 0.66rem;
+    line-height: 1;
+    color: var(--gray);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.12s,
+      color 0.12s;
+
+    &:hover {
+      color: #d9534f;
+    }
+  }
+  &__row:hover &__x {
+    opacity: 1;
+  }
+
+  // Read-only row.
+  &__meal-ro {
+    flex: none;
+    width: 4.4rem;
+    font-size: 0.74rem;
+    color: var(--gray);
+  }
+  &__food-ro {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.83rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  &__kcal-ro {
+    flex: none;
+    font-size: 0.79rem;
+    font-weight: 600;
+    color: var(--darkgray);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__add {
+    align-self: flex-start;
+    border: none;
+    background: none;
+    color: var(--gray);
+    padding: 0.2rem 0.1rem;
+    font: inherit;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: color 0.12s;
+
+    &:hover {
+      color: var(--secondary);
+    }
+  }
+}
+
 // --- Targets / lists -------------------------------------------------------
 .dash-sub {
   display: flex;

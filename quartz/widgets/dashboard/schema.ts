@@ -68,11 +68,41 @@ export const DashboardMetricSchema = z.object({
   trend: z.enum(["up", "down", "flat", "none"]).default("none"),
 })
 
+// --- Health log (manually entered, in addition to Apple Health import) ------
+
+// Meal slot a calorie entry belongs to.
+export const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const
+export const MealTypeSchema = z.enum(MEAL_TYPES).default("breakfast")
+export type MealType = z.infer<typeof MealTypeSchema>
+
+// One manually-logged body-weight reading. Merged by date with the Apple
+// Health imported samples for the weight trend — a manual entry wins for
+// its date, so you can correct or fill a day the phone didn't push.
+export const WeightEntrySchema = z.object({
+  id: z.string().min(1),
+  date: z.string().default(""), // local YYYY-MM-DD
+  kg: z.number().default(0),
+})
+export type WeightEntry = z.infer<typeof WeightEntrySchema>
+
+// One logged meal — what was eaten and its calories.
+export const MealEntrySchema = z.object({
+  id: z.string().min(1),
+  date: z.string().default(""), // local YYYY-MM-DD
+  meal: MealTypeSchema,
+  food: z.string().default(""),
+  kcal: z.number().default(0),
+})
+export type MealEntry = z.infer<typeof MealEntrySchema>
+
 export const DashboardDataSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   title: z.string().default("主面板"),
   goals: z.array(DashboardGoalSchema).default([]),
   metrics: z.array(DashboardMetricSchema).default([]),
+  // Manual health log — coexists with the Apple Health bridge import.
+  weightLog: z.array(WeightEntrySchema).default([]),
+  mealLog: z.array(MealEntrySchema).default([]),
   view: DashboardViewSchema.default({
     filterStatus: "all",
     filterPriority: "all",
