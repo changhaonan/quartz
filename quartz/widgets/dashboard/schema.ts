@@ -121,12 +121,18 @@ export const ExerciseEntrySchema = z.object({
 })
 export type ExerciseEntry = z.infer<typeof ExerciseEntrySchema>
 
-// Body profile — feeds the Mifflin-St Jeor BMR estimate. Each field is
-// optional ("" / 0); BMR only computes once all three are set.
+// Body profile — feeds the Mifflin-St Jeor BMR estimate, plus the
+// per-kind weekly capacities the goals load% is divided against. Each
+// field is optional / has a sensible default.
 export const DashboardProfileSchema = z.object({
   heightCm: z.number().default(0),
   birthDate: z.string().default(""), // YYYY-MM-DD
   sex: z.enum(["male", "female", ""]).default(""),
+  // "Load units" per week the user is willing to carry, per kind. Units
+  // are abstract (S=1, M=8, L=40 — hour-shaped but never displayed as
+  // hours); these are just the denominators behind the goals pills.
+  weeklyWorkCapacity: z.number().default(30),
+  weeklyPersonalCapacity: z.number().default(10),
 })
 export type DashboardProfile = z.infer<typeof DashboardProfileSchema>
 
@@ -139,7 +145,13 @@ export const DashboardDataSchema = z.object({
   weightLog: z.array(WeightEntrySchema).default([]),
   mealLog: z.array(MealEntrySchema).default([]),
   exerciseLog: z.array(ExerciseEntrySchema).default([]),
-  profile: DashboardProfileSchema.default({ heightCm: 0, birthDate: "", sex: "" }),
+  profile: DashboardProfileSchema.default({
+    heightCm: 0,
+    birthDate: "",
+    sex: "",
+    weeklyWorkCapacity: 30,
+    weeklyPersonalCapacity: 10,
+  }),
   view: DashboardViewSchema.default({
     filterStatus: "all",
     filterPriority: "all",

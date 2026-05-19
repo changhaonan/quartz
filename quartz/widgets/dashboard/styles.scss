@@ -199,6 +199,9 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 .dash-summary__pill--good .dash-summary__value {
   color: #2f9e44;
 }
+.dash-summary__pill--watch .dash-summary__value {
+  color: #d98b22;
+}
 .dash-summary__pill--warn .dash-summary__value {
   color: #d9534f;
 }
@@ -1484,6 +1487,13 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     padding: 0.18rem 0.4rem;
     color: var(--darkgray);
     color-scheme: light dark;
+  }
+
+  &__hint {
+    width: 100%;
+    margin: 0.2rem 0 0;
+    font-size: 0.7rem;
+    color: var(--gray);
   }
 }
 

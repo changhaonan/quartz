@@ -120,6 +120,9 @@ export interface Strings {
   profileBirthDate: string
   profileSex: string
   profileSexValues: { male: string; female: string }
+  profileWorkCapacity: string
+  profilePersonalCapacity: string
+  profileCapacityHint: string
 
   // --- exercise log ---
   exerciseTitle: string
@@ -276,6 +279,9 @@ const zhCN: Strings = {
   profileBirthDate: "出生年月",
   profileSex: "性别",
   profileSexValues: { male: "男", female: "女" },
+  profileWorkCapacity: "周工作容量",
+  profilePersonalCapacity: "周个人容量",
+  profileCapacityHint: "容量单位:1 小=1,中=8,大=40。默认 30/10",
 
   exerciseTitle: "运动",
   exerciseEmpty: "今天还没有运动记录。",
@@ -445,6 +451,9 @@ const enUS: Strings = {
   profileBirthDate: "Birth date",
   profileSex: "Sex",
   profileSexValues: { male: "Male", female: "Female" },
+  profileWorkCapacity: "Weekly work capacity",
+  profilePersonalCapacity: "Weekly personal capacity",
+  profileCapacityHint: "Units: S=1, M=8, L=40. Defaults 30 / 10",
 
   exerciseTitle: "Exercise",
   exerciseEmpty: "No exercise logged today.",
