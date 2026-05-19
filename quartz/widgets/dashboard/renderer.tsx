@@ -18,7 +18,6 @@ import type {
   DashboardProfile,
   DashboardView,
   ExerciseEntry,
-  GoalCadence,
   GoalKind,
   GoalLogEntry,
   GoalPriority,
@@ -297,33 +296,33 @@ function EditableField(props: {
 }
 
 // ---------------------------------------------------------------------------
-// Goals — a Notion-style board. Each cadence (daily / weekly / main) is a
-// column; each goal is a card. Editing is in-place; a card is dragged between
-// columns to change its cadence (the only way to re-bucket a goal).
+// Goals — a Notion-style board grouped by STATUS (未开始 / 进行中 / 暂停 /
+// 已完成). Drag a card between columns to change its status. Editing is
+// in-place.
 // ---------------------------------------------------------------------------
-const GOAL_CADENCES: GoalCadence[] = ["daily", "weekly", "main"]
+const BOARD_STATUSES: GoalStatus[] = ["todo", "doing", "paused", "done"]
 
 // Where a drag is currently pointing: a column, and the card it would land
 // before (null = end of the column).
 interface DropTarget {
-  cadence: GoalCadence
+  status: GoalStatus
   beforeId: string | null
 }
 
-// Move `id` to `cadence`, inserting before `beforeId` (or at the column's end
-// when null). Goals of different cadences interleave freely in the array — the
-// per-column filter preserves relative order, so splicing before `beforeId`
-// lands the card exactly where the drop indicator showed it.
+// Move `id` to `status`, inserting before `beforeId` (or at the column's
+// end when null). Goals of different statuses interleave freely in the
+// array — the per-column filter preserves relative order, so splicing
+// before `beforeId` lands the card exactly where the drop indicator showed.
 function moveGoal(
   goals: DashboardGoal[],
   id: string,
-  cadence: GoalCadence,
+  status: GoalStatus,
   beforeId: string | null,
 ): DashboardGoal[] {
   const dragged = goals.find((g) => g.id === id)
   if (!dragged) return goals
   const rest = goals.filter((g) => g.id !== id)
-  const moved: DashboardGoal = { ...dragged, cadence }
+  const moved: DashboardGoal = { ...dragged, status }
   const idx = beforeId ? rest.findIndex((g) => g.id === beforeId) : -1
   if (idx < 0) rest.push(moved)
   else rest.splice(idx, 0, moved)
@@ -342,7 +341,6 @@ const STATUS_RANK: Record<GoalStatus, number> = { doing: 0, todo: 1, paused: 2, 
 const PRIORITY_RANK: Record<GoalPriority, number> = { high: 0, mid: 1, low: 2, none: 3 }
 
 function matchesView(g: DashboardGoal, v: DashboardView): boolean {
-  if (v.filterStatus !== "all" && g.status !== v.filterStatus) return false
   if (v.filterPriority !== "all" && g.priority !== v.filterPriority) return false
   if (v.filterTag !== "" && !g.tags.includes(v.filterTag)) return false
   return true
@@ -751,7 +749,7 @@ function GoalCard(props: {
 
 // --- One board column ------------------------------------------------------
 function GoalColumn(props: {
-  cadence: GoalCadence
+  status: GoalStatus
   rows: DashboardGoal[]
   canWrite: boolean
   // When a sort is active, within-column position is sort-determined: a drop
@@ -764,27 +762,27 @@ function GoalColumn(props: {
   estimateTaskSize: ((title: string, note: string) => Promise<GoalSize | null>) | null
   onCardPatch: (id: string, partial: Partial<DashboardGoal>) => void
   onRemove: (id: string) => void
-  onAdd: (cadence: GoalCadence) => void
+  onAdd: (status: GoalStatus) => void
   onDragStart: (id: string) => void
   onDragEnd: () => void
   onDropHint: (target: DropTarget) => void
   onDrop: () => void
 }) {
   const t = useStrings()
-  const { cadence, rows, canWrite, sorted, draggingId, focusGoalId, drop } = props
-  const isActive = drop?.cadence === cadence
+  const { status, rows, canWrite, sorted, draggingId, focusGoalId, drop } = props
+  const isActive = drop?.status === status
   const dropLine = (beforeId: string | null) =>
     !sorted && isActive && drop?.beforeId === beforeId ? <div className="dash-drop-line" /> : null
 
   return (
     <div
-      className={`dash-col${isActive ? " is-droptarget" : ""}`}
+      className={`dash-col dash-col--${status}${isActive ? " is-droptarget" : ""}`}
       onDragOver={
         canWrite
           ? (e) => {
               e.preventDefault()
               // Bare column area (below the cards) — drop at the end.
-              props.onDropHint({ cadence, beforeId: null })
+              props.onDropHint({ status, beforeId: null })
             }
           : undefined
       }
@@ -798,7 +796,7 @@ function GoalColumn(props: {
       }
     >
       <div className="dash-col__head">
-        <span className="dash-col__title">{t.cadence[cadence]}</span>
+        <span className="dash-col__title">{t.status[status]}</span>
         <span className="dash-col__count">{rows.length}</span>
       </div>
       <div className="dash-col__body">
@@ -817,7 +815,7 @@ function GoalColumn(props: {
               onDragEnd={props.onDragEnd}
               onDragOver={(before) =>
                 props.onDropHint({
-                  cadence,
+                  status,
                   // Sorted: position is not user-controlled — drop = column.
                   beforeId: sorted ? null : before ? g.id : (rows[i + 1]?.id ?? null),
                 })
@@ -834,7 +832,7 @@ function GoalColumn(props: {
           ))}
       </div>
       {canWrite && (
-        <button className="dash-col__add" onClick={() => props.onAdd(cadence)}>
+        <button className="dash-col__add" onClick={() => props.onAdd(status)}>
           {t.addGoal}
         </button>
       )}
@@ -853,7 +851,7 @@ function GoalsSection(props: {
   setGoals: (mutate: (goals: DashboardGoal[]) => DashboardGoal[]) => void
   // Patch the persisted view (filter / sort) state.
   setView: (partial: Partial<DashboardView>) => void
-  onAddGoal: (cadence: GoalCadence) => void
+  onAddGoal: (status: GoalStatus) => void
 }) {
   const t = useStrings()
   const { goals, view, profile, canWrite, focusGoalId } = props
@@ -886,23 +884,21 @@ function GoalsSection(props: {
   const handleDrop = () => {
     const id = dragIdRef.current
     const target = dropRef.current
-    if (id && target) props.setGoals((gs) => moveGoal(gs, id, target.cadence, target.beforeId))
+    if (id && target) props.setGoals((gs) => moveGoal(gs, id, target.status, target.beforeId))
     endDrag()
   }
 
   // Tags present across all goals — populates the tag-filter dropdown.
   const allTags = [...new Set(goals.flatMap((g) => g.tags))].sort()
-  const filterActive =
-    view.filterStatus !== "all" || view.filterPriority !== "all" || view.filterTag !== ""
+  const filterActive = view.filterPriority !== "all" || view.filterTag !== ""
   const visible = goals.filter((g) => matchesView(g, view))
 
   // Summary pills: per-kind tier-aware load. Only "doing" counts as
-  // load (todo / done don't), and "main" cadence is long-term so it's
-  // out of the in-progress picture. Pill % = max stretched tier; the
+  // load (todo / paused / done don't). Pill % = max stretched tier; the
   // L·M·S breakdown is shown inline.
   const today = todayISO()
   const activeGoals = goals.filter((g) => g.status !== "done")
-  const doing = goals.filter((g) => g.status === "doing" && g.cadence !== "main")
+  const doing = goals.filter((g) => g.status === "doing")
   const work = tierLoad(doing, isWorkGoal, profile.workCapacity)
   const personal = tierLoad(doing, (g) => !isWorkGoal(g), profile.personalCapacity)
   const withDue = activeGoals.filter((g) => g.dueDate)
@@ -915,21 +911,6 @@ function GoalsSection(props: {
         <h2>{t.goalsTitle}</h2>
         {canWrite && (
           <div className="dash-board-toolbar">
-            <select
-              className="dash-vselect"
-              aria-label={t.filterStatusAria}
-              value={view.filterStatus}
-              onChange={(e) =>
-                props.setView({
-                  filterStatus: e.currentTarget.value as DashboardView["filterStatus"],
-                })
-              }
-            >
-              <option value="all">{`${t.word.status} · ${t.word.all}`}</option>
-              {STATUS_VALUES.map((v) => (
-                <option key={v} value={v}>{`${t.word.status} · ${t.status[v]}`}</option>
-              ))}
-            </select>
             <select
               className="dash-vselect"
               aria-label={t.filterPriorityAria}
@@ -1009,14 +990,11 @@ function GoalsSection(props: {
         />
       </div>
       <div className="dash-board">
-        {GOAL_CADENCES.map((cadence) => (
+        {BOARD_STATUSES.map((status) => (
           <GoalColumn
-            key={cadence}
-            cadence={cadence}
-            rows={sortGoals(
-              visible.filter((g) => (g.cadence ?? "main") === cadence),
-              view.sort,
-            )}
+            key={status}
+            status={status}
+            rows={sortGoals(visible.filter((g) => g.status === status), view.sort)}
             canWrite={canWrite}
             sorted={view.sort !== "manual"}
             filterActive={filterActive}
@@ -2437,17 +2415,16 @@ function Dashboard(props: {
     [commit],
   )
   const addGoal = useCallback(
-    (cadence: GoalCadence) => {
+    (status: GoalStatus) => {
       const goal: DashboardGoal = {
         id: `g-${Date.now()}`,
         title: "",
         note: "",
-        status: "todo",
+        status,
         priority: "none",
         tags: [],
         dueDate: "",
         log: [],
-        cadence,
         kind: "personal",
         size: "",
       }

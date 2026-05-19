@@ -6,7 +6,7 @@
 // This is the widget's *own* string table — Quartz's quartz/i18n covers only
 // Quartz core UI and has no dashboard keys.
 
-import type { DashboardView, GoalCadence, GoalKind, GoalSize, GoalStatus, MealType } from "./schema"
+import type { DashboardView, GoalKind, GoalSize, GoalStatus, MealType } from "./schema"
 
 export type DashLocale = "zh-CN" | "en-US"
 
@@ -29,7 +29,6 @@ export interface Strings {
 
   // --- goals board ---
   goalsTitle: string
-  cadence: Record<GoalCadence, string>
   addGoal: string
   noGoals: string
   noMatch: string
@@ -196,7 +195,6 @@ const zhCN: Strings = {
   summaryWeekBudget: "本周预算",
 
   goalsTitle: "目标",
-  cadence: { daily: "每日", weekly: "每周", main: "主要" },
   addGoal: "+ 添加",
   noGoals: "还没有目标。",
   noMatch: "无匹配目标",
@@ -368,7 +366,6 @@ const enUS: Strings = {
   summaryWeekBudget: "Week budget",
 
   goalsTitle: "Goals",
-  cadence: { daily: "Daily", weekly: "Weekly", main: "Main" },
   addGoal: "+ Add",
   noGoals: "No goals yet.",
   noMatch: "No matching goals",

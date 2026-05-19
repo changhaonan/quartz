@@ -9,10 +9,6 @@ import { z } from "zod"
 export const DASHBOARD_TYPE = "dashboard"
 export const DASHBOARD_SCHEMA_VERSION = 1
 
-// Cadence buckets a goal on the panel. "main" = long-term / quarterly; it is
-// also the default so goals authored before this field existed still render.
-export const GoalCadenceSchema = z.enum(["daily", "weekly", "main"]).default("main")
-export type GoalCadence = z.infer<typeof GoalCadenceSchema>
 
 // A goal's coarse status — the Notion "Status" property. This *is* the
 // progress indicator: no fine-grained percentage. "paused" = started
@@ -56,8 +52,6 @@ export const DashboardGoalSchema = z.object({
   dueDate: z.string().default(""),
   // Progress timeline — oldest-first; the card shows it newest-first.
   log: z.array(GoalLogEntrySchema).default([]),
-  // Which board column the goal shows under: 每日 / 每周 / 主要.
-  cadence: GoalCadenceSchema,
   // Personal vs work — explicit classification, replaces the implicit
   // tag-based detection.
   kind: GoalKindSchema,
@@ -68,7 +62,6 @@ export const DashboardGoalSchema = z.object({
 // View toolbar state for the goals board — filters + sort. Persisted with the
 // data so the chosen view survives reloads. "all" / "" / "manual" = unset.
 export const DashboardViewSchema = z.object({
-  filterStatus: z.enum(["all", "todo", "doing", "paused", "done"]).default("all"),
   filterPriority: z.enum(["all", "none", "low", "mid", "high"]).default("all"),
   filterTag: z.string().default(""),
   sort: z.enum(["manual", "priority", "dueDate", "status"]).default("manual"),
@@ -166,7 +159,6 @@ export const DashboardDataSchema = z.object({
     personalCapacity: { L: 1, M: 1, S: 2 },
   }),
   view: DashboardViewSchema.default({
-    filterStatus: "all",
     filterPriority: "all",
     filterTag: "",
     sort: "manual",

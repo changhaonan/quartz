@@ -257,11 +257,14 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 
 .dash-board {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.6rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
   align-items: start;
 
-  @media (max-width: 620px) {
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  @media (max-width: 520px) {
     grid-template-columns: 1fr;
   }
 }
