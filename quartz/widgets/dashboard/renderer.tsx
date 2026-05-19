@@ -965,12 +965,105 @@ function WeightCard(props: {
   )
 }
 
-// Calorie card — today's meals grouped by slot, with the day's total. Each
-// row is an in-place editable meal: slot / food / kcal.
+// One meal row. Editable: slot / food / kcal, plus an optional AI
+// "estimate" button (✨) that fills kcal from the food description — so a
+// meal can be logged without looking the number up. The user can still
+// hand-type kcal, or correct an estimate.
+function MealRow(props: {
+  entry: MealEntry
+  canWrite: boolean
+  focus: boolean
+  estimate: ((food: string, meal: string) => Promise<number | null>) | null
+  onPatch: (partial: Partial<MealEntry>) => void
+  onRemove: () => void
+}) {
+  const t = useStrings()
+  const { entry: e, canWrite, focus } = props
+  const [estimating, setEstimating] = useState(false)
+
+  if (!canWrite) {
+    return (
+      <div className="dash-cal__row">
+        <span className="dash-cal__meal-ro">{t.mealType[e.meal]}</span>
+        <span className="dash-cal__food-ro">{e.food}</span>
+        <span className="dash-cal__kcal-ro">{(e.kcal || 0).toLocaleString("en-US")} kcal</span>
+      </div>
+    )
+  }
+
+  const runEstimate = async () => {
+    const food = e.food.trim()
+    if (estimating || !props.estimate || !food) return
+    setEstimating(true)
+    try {
+      const kcal = await props.estimate(food, e.meal)
+      if (kcal != null && kcal > 0) props.onPatch({ kcal })
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  return (
+    <div className="dash-cal__row">
+      <select
+        className="dash-cal__meal"
+        value={e.meal}
+        aria-label={t.mealTypeAria}
+        onChange={(ev) => props.onPatch({ meal: ev.currentTarget.value as MealType })}
+      >
+        {MEAL_TYPES.map((m) => (
+          <option key={m} value={m}>
+            {t.mealType[m]}
+          </option>
+        ))}
+      </select>
+      <EditableField
+        className="dash-cal__food"
+        value={e.food}
+        placeholder={t.foodPlaceholder}
+        ariaLabel={t.foodAria}
+        focusOnMount={focus}
+        onCommit={(food) => props.onPatch({ food })}
+      />
+      {props.estimate && (
+        <button
+          type="button"
+          className="dash-cal__est"
+          title={t.estimateHint}
+          aria-label={t.estimateHint}
+          disabled={estimating || e.food.trim() === ""}
+          onClick={runEstimate}
+        >
+          {estimating ? "⋯" : "✨"}
+        </button>
+      )}
+      <EditableField
+        className="dash-cal__kcal"
+        value={e.kcal ? String(e.kcal) : ""}
+        placeholder="0"
+        ariaLabel={t.kcalAria}
+        onCommit={(v) => props.onPatch({ kcal: Math.max(0, Math.round(parseFloat(v) || 0)) })}
+      />
+      <span className="dash-cal__unit">kcal</span>
+      <button
+        type="button"
+        className="dash-cal__x"
+        title={t.removeMeal}
+        aria-label={t.removeMeal}
+        onClick={props.onRemove}
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
+// Calorie card — today's meals grouped by slot, with the day's total.
 function CalorieCard(props: {
   entries: MealEntry[]
   canWrite: boolean
   focusMealId: string | null
+  estimate: ((food: string, meal: string) => Promise<number | null>) | null
   onPatch: (id: string, partial: Partial<MealEntry>) => void
   onRemove: (id: string) => void
   onAdd: () => void
@@ -994,61 +1087,15 @@ function CalorieCard(props: {
       {rows.length > 0 && (
         <div className="dash-cal__rows">
           {rows.map((e) => (
-            <div className="dash-cal__row" key={e.id}>
-              {canWrite ? (
-                <>
-                  <select
-                    className="dash-cal__meal"
-                    value={e.meal}
-                    aria-label={t.mealTypeAria}
-                    onChange={(ev) =>
-                      props.onPatch(e.id, { meal: ev.currentTarget.value as MealType })
-                    }
-                  >
-                    {MEAL_TYPES.map((m) => (
-                      <option key={m} value={m}>
-                        {t.mealType[m]}
-                      </option>
-                    ))}
-                  </select>
-                  <EditableField
-                    className="dash-cal__food"
-                    value={e.food}
-                    placeholder={t.foodPlaceholder}
-                    ariaLabel={t.foodAria}
-                    focusOnMount={e.id === focusMealId}
-                    onCommit={(food) => props.onPatch(e.id, { food })}
-                  />
-                  <EditableField
-                    className="dash-cal__kcal"
-                    value={e.kcal ? String(e.kcal) : ""}
-                    placeholder="0"
-                    ariaLabel={t.kcalAria}
-                    onCommit={(v) =>
-                      props.onPatch(e.id, { kcal: Math.max(0, Math.round(parseFloat(v) || 0)) })
-                    }
-                  />
-                  <span className="dash-cal__unit">kcal</span>
-                  <button
-                    type="button"
-                    className="dash-cal__x"
-                    title={t.removeMeal}
-                    aria-label={t.removeMeal}
-                    onClick={() => props.onRemove(e.id)}
-                  >
-                    ✕
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="dash-cal__meal-ro">{t.mealType[e.meal]}</span>
-                  <span className="dash-cal__food-ro">{e.food}</span>
-                  <span className="dash-cal__kcal-ro">
-                    {(e.kcal || 0).toLocaleString("en-US")} kcal
-                  </span>
-                </>
-              )}
-            </div>
+            <MealRow
+              key={e.id}
+              entry={e}
+              canWrite={canWrite}
+              focus={e.id === focusMealId}
+              estimate={props.estimate}
+              onPatch={(partial) => props.onPatch(e.id, partial)}
+              onRemove={() => props.onRemove(e.id)}
+            />
           ))}
         </div>
       )}
@@ -1072,6 +1119,7 @@ function HealthSection(props: {
   mealLog: MealEntry[]
   canWrite: boolean
   focusMealId: string | null
+  estimateCalories: ((food: string, meal: string) => Promise<number | null>) | null
   setWeightLog: (mutate: (log: WeightEntry[]) => WeightEntry[]) => void
   setMealLog: (mutate: (log: MealEntry[]) => MealEntry[]) => void
   onAddMeal: () => void
@@ -1121,6 +1169,7 @@ function HealthSection(props: {
         entries={todayMeals}
         canWrite={canWrite}
         focusMealId={focusMealId}
+        estimate={props.estimateCalories}
         onPatch={patchMeal}
         onRemove={removeMeal}
         onAdd={props.onAddMeal}
@@ -1700,6 +1749,27 @@ function Dashboard(props: {
     setMealLog((log) => [...log, entry])
     setFocusMealId(entry.id)
   }, [setMealLog])
+  // AI calorie estimate — POSTs the food description to the bridge, which
+  // runs a one-shot codex call. Returns null on any failure so the row
+  // simply leaves kcal for the user to type.
+  const estimateCalories = useCallback(
+    async (food: string, meal: string): Promise<number | null> => {
+      if (!bridgeOrigin) return null
+      try {
+        const res = await fetch(`${bridgeOrigin}/api/metrics/estimate-calories`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ food, meal }),
+        })
+        if (!res.ok) return null
+        const json = await res.json()
+        return typeof json?.kcal === "number" ? json.kcal : null
+      } catch {
+        return null
+      }
+    },
+    [bridgeOrigin],
+  )
 
   return (
     <StringsContext.Provider value={t}>
@@ -1746,6 +1816,7 @@ function Dashboard(props: {
           mealLog={data.mealLog}
           canWrite={canWrite}
           focusMealId={focusMealId}
+          estimateCalories={bridgeOrigin ? estimateCalories : null}
           setWeightLog={setWeightLog}
           setMealLog={setMealLog}
           onAddMeal={addMeal}

@@ -81,6 +81,7 @@ export interface Strings {
   foodPlaceholder: string
   foodAria: string
   kcalAria: string
+  estimateHint: string
   removeMeal: string
 
   // --- finance ---
@@ -192,6 +193,7 @@ const zhCN: Strings = {
   foodPlaceholder: "吃了什么…",
   foodAria: "食物",
   kcalAria: "卡路里(kcal)",
+  estimateHint: "用 AI 估算卡路里",
   removeMeal: "删除这一餐",
 
   financeTitle: "财务",
@@ -305,6 +307,7 @@ const enUS: Strings = {
   foodPlaceholder: "What did you eat…",
   foodAria: "Food",
   kcalAria: "Calories (kcal)",
+  estimateHint: "Estimate calories with AI",
   removeMeal: "Delete this meal",
 
   financeTitle: "Finance",

@@ -1037,18 +1037,50 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     min-width: 0;
     font-size: 0.83rem;
   }
+  // kcal is the one field you must fill in — give it a real boxed look
+  // (the borderless food field reads fine since it's focused on add).
   &__kcal {
     flex: none;
-    width: 3.6rem;
+    width: 4rem;
     font-size: 0.83rem;
     font-weight: 600;
     text-align: right;
     font-variant-numeric: tabular-nums;
+    border: 1px solid var(--gray);
+    background: var(--light);
+    border-radius: 5px;
+    padding: 0.1rem 0.35rem;
   }
   &__unit {
     flex: none;
     font-size: 0.68rem;
     color: var(--gray);
+  }
+  // AI calorie-estimate button — fills the kcal box from the food text.
+  &__est {
+    flex: none;
+    border: 1px solid $dash-hairline;
+    background: transparent;
+    border-radius: 5px;
+    padding: 0.1rem 0.32rem;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    color: var(--gray);
+    cursor: pointer;
+    transition:
+      background 0.12s,
+      border-color 0.12s,
+      color 0.12s;
+
+    &:hover:not(:disabled) {
+      background: $dash-fill;
+      border-color: var(--gray);
+      color: var(--secondary);
+    }
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
   }
   &__x {
     flex: none;
