@@ -68,10 +68,15 @@
   }
 }
 
-// Floating Table-of-Contents — pinned to the right edge of the centre column
-// just inside the assistant panel. Collapsed by default (defaultCollapsed:
-// true on the layout side); the existing toc.inline script handles the
-// click-to-toggle.
+// Floating Table-of-Contents — pinned to the right edge of the centre
+// column just inside the assistant panel. Two states:
+//
+//   collapsed (default) — a narrow vertical tab; title runs top-to-bottom,
+//                          chevron points "out".
+//   expanded            — slides out to a full-width panel with the list.
+//
+// Click the header toggles between the two; the underlying toc.inline.ts
+// script adds/removes `.collapsed` on the button.
 @media all and (min-width: 1200px) {
   .page-footer .toc {
     position: fixed;
@@ -80,24 +85,60 @@
     // assistant column so the two stay aligned through viewport changes.
     right: calc(clamp(380px, 30vw, 600px) + 0.9rem);
     z-index: 5;
-    max-width: 240px;
-    max-height: 70vh;
     background: var(--light);
     border: 1px solid var(--lightgray);
     border-radius: 8px;
-    padding: 0.5rem 0.7rem;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
     overflow: hidden;
+    transition:
+      width 0.18s ease,
+      max-height 0.18s ease;
 
-    // Expanded — let the list scroll if long.
+    // expanded — wide panel with the list inside
+    width: 240px;
+    max-height: 70vh;
+
+    & button.toc-header {
+      padding: 0.5rem 0.7rem;
+      width: 100%;
+      gap: 0.4rem;
+      & h3 {
+        writing-mode: horizontal-tb;
+        white-space: nowrap;
+      }
+      & .fold {
+        margin-left: auto;
+      }
+    }
+
     & ul.toc-content {
+      padding: 0 0.7rem 0.5rem;
       overflow-y: auto;
       max-height: calc(70vh - 2.4rem);
     }
-    // Collapsed — shrink-wrap to just the header button.
+
+    // collapsed — narrow vertical strip on the right edge
     &:has(button.toc-header.collapsed) {
-      padding: 0.3rem 0.7rem;
-      max-height: 2.2rem;
+      width: 1.8rem;
+      max-height: 9rem;
+
+      & button.toc-header {
+        padding: 0.5rem 0;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.35rem;
+        & h3 {
+          writing-mode: vertical-rl;
+          letter-spacing: 0.05em;
+          font-size: 0.8rem;
+          margin: 0;
+        }
+        & .fold {
+          margin-left: 0;
+          transform: rotateZ(90deg);
+        }
+      }
     }
   }
 }
