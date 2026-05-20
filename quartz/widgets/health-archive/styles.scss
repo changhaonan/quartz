@@ -1,0 +1,62 @@
+// Minimal table styling — inherits the site's text colours via vars.
+.harchive {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  margin: 0.5rem 0;
+}
+
+.harchive__month-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--dark);
+}
+
+.harchive__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+
+  & th {
+    text-align: left;
+    color: var(--gray);
+    font-weight: 500;
+    border-bottom: 1px solid var(--lightgray);
+    padding: 0.3rem 0.5rem;
+  }
+  & td {
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--lightgray) 50%, transparent);
+  }
+  & tr:hover td {
+    background: color-mix(in srgb, var(--lightgray) 22%, transparent);
+  }
+}
+
+.harchive__num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.harchive__date {
+  color: var(--darkgray);
+  font-variant-numeric: tabular-nums;
+}
+.harchive__net {
+  &.is-deficit {
+    color: var(--secondary);
+  }
+  &.is-surplus {
+    color: #d9534f;
+  }
+}
+.harchive__detail {
+  color: var(--gray);
+  font-size: 0.74rem;
+}
+
+.harchive__empty {
+  color: var(--gray);
+  font-size: 0.85rem;
+  padding: 1rem 0.5rem;
+}

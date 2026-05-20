@@ -2615,17 +2615,15 @@ function BridgeSection(props: { bridge: Aggregate["bridge"] }) {
 // ---------------------------------------------------------------------------
 // Daily health archive sweep
 //
-// Once per local day, the dashboard moves entries older than the rolling
-// window (7 days) out of data.json's weightLog/mealLog/exerciseLog and into
-// per-month sidecars under dashboard/health/archive/YYYY-MM.runtime/data.json.
-// Apple Health pull is the bridge's job — only the manually-logged + the
-// merged-into-widget series live here.
+// On every widget mount, the dashboard moves any entries dated before today
+// out of data.json's weightLog/mealLog/exerciseLog and into per-month
+// sidecars under dashboard/health/archive/YYYY-MM.runtime/data.json. The
+// "today" health cards stay focused on today's intake / expenditure; the
+// history lives in /dashboard/health/archive/.
 //
 // Idempotent: archive month files are upserted with `add /<field>` of the
-// whole merged-by-id list. If the user opens the page on the same day
-// again, lastArchivedDate already matches today and the sweep is skipped.
+// whole merged-by-id list, so a repeat run on the same day is a no-op.
 // ---------------------------------------------------------------------------
-const ARCHIVE_WINDOW_DAYS = 7
 
 interface ArchiveMonthBucket {
   weightLog: WeightEntry[]
@@ -2664,25 +2662,20 @@ async function runDailyArchive(opts: {
   data: DashboardData
   today: string
   workspaceId: string
-}): Promise<ArchiveResult> {
+}): Promise<ArchiveResult | null> {
   const { data, today, workspaceId } = opts
-  // 7-day rolling window: entries dated strictly older than `cutoff` (which
-  // is today minus 7 days) get archived. Same-day entries always stay.
-  const cutoff = (() => {
-    const d = new Date()
-    d.setDate(d.getDate() - ARCHIVE_WINDOW_DAYS)
-    const p = (n: number) => String(n).padStart(2, "0")
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-  })()
-  const isOld = (date: string) => Boolean(date) && date < cutoff
+  // Anything not dated today gets archived — "今天" cards always show only
+  // today, the rest moves to dashboard/health/archive/YYYY-MM.runtime/.
+  const isOld = (date: string) => Boolean(date) && date < today
 
   const oldW = data.weightLog.filter((w) => isOld(w.date))
   const oldM = data.mealLog.filter((m) => isOld(m.date))
   const oldE = data.exerciseLog.filter((e) => isOld(e.date))
   const total = oldW.length + oldM.length + oldE.length
 
-  // Nothing stale to move — still stamp the date so we don't re-check every
-  // mount today.
+  // Nothing stale + date already stamped → really nothing to do.
+  if (total === 0 && data.lastArchivedDate === today) return null
+  // Nothing stale but the date hasn't been stamped today → just stamp it.
   if (total === 0) {
     return {
       archivedCount: 0,
@@ -2903,12 +2896,12 @@ function Dashboard(props: {
   const archiveRanRef = useRef(false)
   useEffect(() => {
     if (!canWrite || archiveRanRef.current) return
-    const today = todayISO()
-    if (dataRef.current.lastArchivedDate === today) return
     archiveRanRef.current = true
     ;(async () => {
       try {
+        const today = todayISO()
         const r = await runDailyArchive({ data: dataRef.current, today, workspaceId })
+        if (!r) return // nothing to archive, date already stamped
         commit(() => r.trimmedData, [
           "weightLog",
           "mealLog",
@@ -2924,7 +2917,7 @@ function Dashboard(props: {
       } catch (e) {
         setArchiveStatus(`归档失败:${(e as Error).message}`)
         window.setTimeout(() => setArchiveStatus(null), 6000)
-        archiveRanRef.current = false // let it retry on next mount
+        archiveRanRef.current = false
       }
     })()
   }, [canWrite, commit, workspaceId])

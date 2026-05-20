@@ -3,6 +3,7 @@
 import "./illustration"
 import "./workflow"
 import "./dashboard"
+import "./health-archive"
 
 export { registerWidget, getWidget, listWidgets } from "./registry"
 export { fetchWidgetData, writeWidget } from "./client"

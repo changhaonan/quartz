@@ -81,12 +81,36 @@ interface LearningTree {
   stats: LearningStats
 }
 
+// --- Health archive --------------------------------------------------------
+//
+// Walks `content/dashboard/health/archive/*.runtime/data.json` — each file
+// is a monthly bucket the widget's daily archive sweep populates. The
+// emitter pre-aggregates per-day rows so the archive viewer can render a
+// "date / weight / intake / expenditure / net" table without re-summing in
+// the browser.
+
+interface HealthArchiveDay {
+  date: string // YYYY-MM-DD
+  weightKg: number | null
+  intakeKcal: number
+  exerciseKcal: number
+  net: number // intake - exercise (BMR is profile-dependent, computed client-side if needed)
+  mealCount: number
+  exerciseCount: number
+}
+
+interface HealthArchiveMonth {
+  month: string // YYYY-MM
+  days: HealthArchiveDay[]
+}
+
 interface DashboardAggregate {
   generatedAt: string
   finance: { file: string | null; data: unknown | null; error: string | null }
   workflows: WorkflowSummary[]
   thoughts: { total: number; recent: ThoughtEntry[] }
   learning: LearningTree
+  healthArchive: { months: HealthArchiveMonth[] }
   bridge: {
     ok: boolean
     origin: string
@@ -358,6 +382,73 @@ function collectLearning(contentRoot: string): LearningTree {
   return { domains, stats: rollupArticles(allArticles) }
 }
 
+function collectHealthArchive(contentRoot: string): DashboardAggregate["healthArchive"] {
+  const archiveRoot = path.join(contentRoot, "dashboard", "health", "archive")
+  if (!fs.existsSync(archiveRoot) || !fs.statSync(archiveRoot).isDirectory()) {
+    return { months: [] }
+  }
+  const entries = fs.readdirSync(archiveRoot, { withFileTypes: true })
+  const months: HealthArchiveMonth[] = []
+  const MONTH_RE = /^\d{4}-\d{2}$/
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(".runtime")) continue
+    const month = entry.name.replace(/\.runtime$/, "")
+    // Skip the index.runtime sidecar (widget-validation dummy) and any
+    // other non-YYYY-MM bucket name.
+    if (!MONTH_RE.test(month)) continue
+    const dataPath = path.join(archiveRoot, entry.name, "data.json")
+    let parsed: {
+      weightLog?: { id: string; date: string; kg: number }[]
+      mealLog?: { id: string; date: string; meal: string; food: string; kcal: number }[]
+      exerciseLog?: { id: string; date: string; name: string; kcal: number }[]
+    }
+    try {
+      parsed = JSON.parse(fs.readFileSync(dataPath, "utf8"))
+    } catch {
+      continue
+    }
+
+    // Roll up per-day: one row per date with weight + summed kcal.
+    const byDate = new Map<string, HealthArchiveDay>()
+    const day = (date: string): HealthArchiveDay => {
+      if (!byDate.has(date)) {
+        byDate.set(date, {
+          date,
+          weightKg: null,
+          intakeKcal: 0,
+          exerciseKcal: 0,
+          net: 0,
+          mealCount: 0,
+          exerciseCount: 0,
+        })
+      }
+      return byDate.get(date)!
+    }
+    for (const w of parsed.weightLog ?? []) {
+      if (!w.date) continue
+      day(w.date).weightKg = typeof w.kg === "number" ? w.kg : null
+    }
+    for (const m of parsed.mealLog ?? []) {
+      if (!m.date) continue
+      const r = day(m.date)
+      r.intakeKcal += Number.isFinite(m.kcal) ? Number(m.kcal) : 0
+      r.mealCount += 1
+    }
+    for (const e of parsed.exerciseLog ?? []) {
+      if (!e.date) continue
+      const r = day(e.date)
+      r.exerciseKcal += Number.isFinite(e.kcal) ? Number(e.kcal) : 0
+      r.exerciseCount += 1
+    }
+    for (const r of byDate.values()) r.net = r.intakeKcal - r.exerciseKcal
+
+    const days = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date))
+    months.push({ month, days })
+  }
+  months.sort((a, b) => b.month.localeCompare(a.month))
+  return { months }
+}
+
 async function collectBridge(): Promise<DashboardAggregate["bridge"]> {
   const origin = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
   const result: DashboardAggregate["bridge"] = {
@@ -409,6 +500,7 @@ async function generate(ctx: BuildCtx): Promise<DashboardAggregate> {
     workflows: collectWorkflows(contentRoot, collected.dirs),
     thoughts: collectThoughts(contentRoot, collected.files),
     learning: collectLearning(contentRoot),
+    healthArchive: collectHealthArchive(contentRoot),
     bridge: await collectBridge(),
   }
 }

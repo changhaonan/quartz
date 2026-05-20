@@ -17,6 +17,11 @@ import {
   WorkflowBoardSchema,
 } from "./workflow/schema"
 import { DASHBOARD_SCHEMA_VERSION, DASHBOARD_TYPE, DashboardDataSchema } from "./dashboard/schema"
+import {
+  HEALTH_ARCHIVE_SCHEMA_VERSION,
+  HEALTH_ARCHIVE_TYPE,
+  HealthArchiveConfigSchema,
+} from "./health-archive/schema"
 
 export interface WidgetSchemaDescriptor {
   schema: ZodType<unknown>
@@ -35,6 +40,10 @@ export const widgetSchemas: Record<string, WidgetSchemaDescriptor> = {
   [DASHBOARD_TYPE]: {
     schema: DashboardDataSchema,
     version: DASHBOARD_SCHEMA_VERSION,
+  },
+  [HEALTH_ARCHIVE_TYPE]: {
+    schema: HealthArchiveConfigSchema,
+    version: HEALTH_ARCHIVE_SCHEMA_VERSION,
   },
 }
 

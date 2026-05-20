@@ -6,6 +6,7 @@
 @use "./illustration/styles.scss";
 @use "./workflow/styles.scss" as workflow;
 @use "./dashboard/styles.scss" as dashboard;
+@use "./health-archive/styles.scss" as healthArchive;
 
 .quartz-widget {
   display: block;
