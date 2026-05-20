@@ -819,16 +819,31 @@ async function handleWidgetWrite(req, res, argv) {
 
   const workspaceId = String(body.workspaceId || "").trim()
   if (workspaceId) {
-    const expectedRuntimePrefix = path.resolve(contentRoot, `${workspaceId}.runtime`)
-    if (
-      absPath !== expectedRuntimePrefix &&
-      !absPath.startsWith(`${expectedRuntimePrefix}${path.sep}`)
-    ) {
+    // Two valid layouts:
+    //
+    //   legacy:  content/<ws>.runtime/...          (single-page widget)
+    //   folder:  content/<ws>/<anything>.runtime/... (folder-index page,
+    //                                                 e.g. dashboard/index.runtime)
+    //
+    // Anything under a `.runtime` segment within the workspace's folder
+    // is the runtime sidecar for some page in that workspace. Reject paths
+    // that touch the workspace's regular markdown content.
+    const legacyPrefix = path.resolve(contentRoot, `${workspaceId}.runtime`)
+    const workspaceDir = path.resolve(contentRoot, workspaceId)
+    const inLegacyRuntime =
+      absPath === legacyPrefix || absPath.startsWith(`${legacyPrefix}${path.sep}`)
+    const inFolderRuntime =
+      absPath.startsWith(`${workspaceDir}${path.sep}`) &&
+      path
+        .relative(workspaceDir, absPath)
+        .split(path.sep)
+        .some((seg) => seg.endsWith(".runtime"))
+    if (!inLegacyRuntime && !inFolderRuntime) {
       return widgetSendJson(res, 400, {
         ok: false,
         error: {
           code: "path_outside_workspace",
-          message: `path must live under ${workspaceId}.runtime/`,
+          message: `path must live under ${workspaceId}.runtime/ or ${workspaceId}/<page>.runtime/`,
         },
       })
     }
