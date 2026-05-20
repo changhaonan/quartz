@@ -119,22 +119,33 @@
 
     // collapsed — narrow vertical strip on the right edge
     &:has(button.toc-header.collapsed) {
-      width: 1.8rem;
-      max-height: 9rem;
+      width: 1.9rem;
+      max-height: 10rem;
+
+      // The base toc.scss relied on a flex parent shrinking to hide the
+      // list; the floating mode has no flex parent, so hide explicitly.
+      & ul.toc-content {
+        display: none;
+      }
 
       & button.toc-header {
-        padding: 0.5rem 0;
+        padding: 0.55rem 0;
         flex-direction: column;
         align-items: center;
         justify-content: flex-start;
-        gap: 0.35rem;
+        gap: 0.3rem;
         & h3 {
           writing-mode: vertical-rl;
-          letter-spacing: 0.05em;
-          font-size: 0.8rem;
+          letter-spacing: 0.04em;
+          font-size: 0.78rem;
+          line-height: 1.05;
           margin: 0;
         }
         & .fold {
+          // The SVG ships at 24×24 — shrink so the chevron sits inside the
+          // strip's padding box instead of poking through the rounded bottom.
+          width: 0.85rem;
+          height: 0.85rem;
           margin-left: 0;
           transform: rotateZ(90deg);
         }
