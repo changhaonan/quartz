@@ -104,6 +104,31 @@ interface HealthArchiveMonth {
   days: HealthArchiveDay[]
 }
 
+// --- Tasks archive ---------------------------------------------------------
+//
+// Walks `content/dashboard/tasks/archive/*.runtime/data.json` — each file
+// is a monthly bucket of goals the daily archive sweep moved out of
+// data.json when they hit status="done". We just pass through the goals
+// list (with completedAt) — the viewer renders cards grouped by month.
+
+interface TasksArchiveGoal {
+  id: string
+  title: string
+  note: string
+  status: string
+  priority: string
+  tags: string[]
+  dueDate: string
+  kind: string
+  size: string
+  completedAt: string
+}
+
+interface TasksArchiveMonth {
+  month: string // YYYY-MM
+  goals: TasksArchiveGoal[]
+}
+
 interface DashboardAggregate {
   generatedAt: string
   finance: { file: string | null; data: unknown | null; error: string | null }
@@ -111,6 +136,7 @@ interface DashboardAggregate {
   thoughts: { total: number; recent: ThoughtEntry[] }
   learning: LearningTree
   healthArchive: { months: HealthArchiveMonth[] }
+  tasksArchive: { months: TasksArchiveMonth[] }
   bridge: {
     ok: boolean
     origin: string
@@ -449,6 +475,45 @@ function collectHealthArchive(contentRoot: string): DashboardAggregate["healthAr
   return { months }
 }
 
+function collectTasksArchive(contentRoot: string): DashboardAggregate["tasksArchive"] {
+  const archiveRoot = path.join(contentRoot, "dashboard", "tasks", "archive")
+  if (!fs.existsSync(archiveRoot) || !fs.statSync(archiveRoot).isDirectory()) {
+    return { months: [] }
+  }
+  const entries = fs.readdirSync(archiveRoot, { withFileTypes: true })
+  const months: TasksArchiveMonth[] = []
+  const MONTH_RE = /^\d{4}-\d{2}$/
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(".runtime")) continue
+    const month = entry.name.replace(/\.runtime$/, "")
+    if (!MONTH_RE.test(month)) continue
+    const dataPath = path.join(archiveRoot, entry.name, "data.json")
+    let parsed: { goals?: TasksArchiveGoal[] }
+    try {
+      parsed = JSON.parse(fs.readFileSync(dataPath, "utf8"))
+    } catch {
+      continue
+    }
+    const goals = (parsed.goals ?? []).map((g) => ({
+      id: String(g.id ?? ""),
+      title: String(g.title ?? ""),
+      note: String(g.note ?? ""),
+      status: String(g.status ?? "done"),
+      priority: String(g.priority ?? "none"),
+      tags: Array.isArray(g.tags) ? g.tags.map(String) : [],
+      dueDate: String(g.dueDate ?? ""),
+      kind: String(g.kind ?? "personal"),
+      size: String(g.size ?? ""),
+      completedAt: String(g.completedAt ?? ""),
+    }))
+    // Newest finish first within each month.
+    goals.sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+    months.push({ month, goals })
+  }
+  months.sort((a, b) => b.month.localeCompare(a.month))
+  return { months }
+}
+
 async function collectBridge(): Promise<DashboardAggregate["bridge"]> {
   const origin = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
   const result: DashboardAggregate["bridge"] = {
@@ -501,6 +566,7 @@ async function generate(ctx: BuildCtx): Promise<DashboardAggregate> {
     thoughts: collectThoughts(contentRoot, collected.files),
     learning: collectLearning(contentRoot),
     healthArchive: collectHealthArchive(contentRoot),
+    tasksArchive: collectTasksArchive(contentRoot),
     bridge: await collectBridge(),
   }
 }

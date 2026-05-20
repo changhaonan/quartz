@@ -22,6 +22,11 @@ import {
   HEALTH_ARCHIVE_TYPE,
   HealthArchiveConfigSchema,
 } from "./health-archive/schema"
+import {
+  TASKS_ARCHIVE_SCHEMA_VERSION,
+  TASKS_ARCHIVE_TYPE,
+  TasksArchiveConfigSchema,
+} from "./tasks-archive/schema"
 
 export interface WidgetSchemaDescriptor {
   schema: ZodType<unknown>
@@ -44,6 +49,10 @@ export const widgetSchemas: Record<string, WidgetSchemaDescriptor> = {
   [HEALTH_ARCHIVE_TYPE]: {
     schema: HealthArchiveConfigSchema,
     version: HEALTH_ARCHIVE_SCHEMA_VERSION,
+  },
+  [TASKS_ARCHIVE_TYPE]: {
+    schema: TasksArchiveConfigSchema,
+    version: TASKS_ARCHIVE_SCHEMA_VERSION,
   },
 }
 

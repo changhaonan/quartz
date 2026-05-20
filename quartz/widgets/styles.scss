@@ -7,6 +7,7 @@
 @use "./workflow/styles.scss" as workflow;
 @use "./dashboard/styles.scss" as dashboard;
 @use "./health-archive/styles.scss" as healthArchive;
+@use "./tasks-archive/styles.scss" as tasksArchive;
 
 .quartz-widget {
   display: block;

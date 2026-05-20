@@ -389,7 +389,13 @@ function moveGoal(
   const dragged = goals.find((g) => g.id === id)
   if (!dragged) return goals
   const rest = goals.filter((g) => g.id !== id)
-  const moved: DashboardGoal = { ...dragged, status }
+  // Stamp / clear completedAt as the card crosses into / out of "已完成".
+  // Identical bookkeeping to the inline status pill (see StatusControl
+  // call site below).
+  let completedAt = dragged.completedAt
+  if (status === "done" && !completedAt) completedAt = todayISO()
+  else if (status !== "done" && completedAt) completedAt = ""
+  const moved: DashboardGoal = { ...dragged, status, completedAt }
   const idx = beforeId ? rest.findIndex((g) => g.id === beforeId) : -1
   if (idx < 0) rest.push(moved)
   else rest.splice(idx, 0, moved)
@@ -719,7 +725,17 @@ function GoalCard(props: {
         <StatusControl
           status={g.status}
           canWrite={canWrite}
-          onChange={(status) => props.onPatch({ status })}
+          onChange={(status) => {
+            // Stamp/clear completedAt as the goal flips in/out of "done" so
+            // the daily archive sweep knows which month bucket to send it to.
+            const patch: Partial<DashboardGoal> = { status }
+            if (status === "done" && !g.completedAt) {
+              patch.completedAt = todayISO()
+            } else if (status !== "done" && g.completedAt) {
+              patch.completedAt = ""
+            }
+            props.onPatch(patch)
+          }}
         />
 
         {showProps && (
@@ -2612,23 +2628,32 @@ function BridgeSection(props: { bridge: Aggregate["bridge"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Daily health archive sweep
+// Daily archive sweep — health + tasks
 //
-// On every widget mount, the dashboard moves any entries dated before today
-// out of data.json's weightLog/mealLog/exerciseLog and into per-month
-// sidecars under dashboard/health/archive/YYYY-MM.runtime/data.json. The
-// "today" health cards stay focused on today's intake / expenditure; the
-// history lives in /dashboard/health/archive/.
+// Two parallel flows:
 //
+//   Health: any weightLog / mealLog / exerciseLog entry dated before today
+//           moves into dashboard/health/archive/<YYYY-MM>.runtime/data.json
+//           (bucket = entry's `date`).
+//
+//   Tasks:  any goal with status=="done" + completedAt < today moves into
+//           dashboard/tasks/archive/<YYYY-MM>.runtime/data.json
+//           (bucket = goal's `completedAt`).
+//
+// The "今天" / "已完成" columns on the live panel stay focused on what
+// happened today; everything older lives under /dashboard/.../archive/.
 // Idempotent: archive month files are upserted with `add /<field>` of the
 // whole merged-by-id list, so a repeat run on the same day is a no-op.
 // ---------------------------------------------------------------------------
 
-interface ArchiveMonthBucket {
+interface HealthMonthBucket {
   weightLog: WeightEntry[]
   mealLog: MealEntry[]
   exerciseLog: ExerciseEntry[]
+}
+
+interface TasksMonthBucket {
+  goals: DashboardGoal[]
 }
 
 interface ArchiveResult {
@@ -2640,14 +2665,14 @@ interface ArchiveResult {
 // Read an existing archive month file. Returns the empty shape on 404 /
 // network error so the merger can treat first-time and subsequent runs the
 // same way.
-async function readArchiveMonth(month: string): Promise<ArchiveMonthBucket> {
-  const empty: ArchiveMonthBucket = { weightLog: [], mealLog: [], exerciseLog: [] }
+async function readHealthMonth(month: string): Promise<HealthMonthBucket> {
+  const empty: HealthMonthBucket = { weightLog: [], mealLog: [], exerciseLog: [] }
   try {
     const res = await fetch(`/dashboard/health/archive/${month}.runtime/data.json`, {
       cache: "no-cache",
     })
     if (!res.ok) return empty
-    const raw = (await res.json()) as Partial<ArchiveMonthBucket>
+    const raw = (await res.json()) as Partial<HealthMonthBucket>
     return {
       weightLog: Array.isArray(raw.weightLog) ? raw.weightLog : [],
       mealLog: Array.isArray(raw.mealLog) ? raw.mealLog : [],
@@ -2658,24 +2683,47 @@ async function readArchiveMonth(month: string): Promise<ArchiveMonthBucket> {
   }
 }
 
+async function readTasksMonth(month: string): Promise<TasksMonthBucket> {
+  const empty: TasksMonthBucket = { goals: [] }
+  try {
+    const res = await fetch(`/dashboard/tasks/archive/${month}.runtime/data.json`, {
+      cache: "no-cache",
+    })
+    if (!res.ok) return empty
+    const raw = (await res.json()) as Partial<TasksMonthBucket>
+    return { goals: Array.isArray(raw.goals) ? raw.goals : [] }
+  } catch {
+    return empty
+  }
+}
+
+function mergeById<T extends { id: string }>(have: T[], add: T[]): T[] {
+  const seen = new Set(have.map((x) => x.id))
+  const out = [...have]
+  for (const a of add) if (!seen.has(a.id)) out.push(a)
+  return out
+}
+
 async function runDailyArchive(opts: {
   data: DashboardData
   today: string
   workspaceId: string
 }): Promise<ArchiveResult | null> {
   const { data, today, workspaceId } = opts
-  // Anything not dated today gets archived — "今天" cards always show only
-  // today, the rest moves to dashboard/health/archive/YYYY-MM.runtime/.
   const isOld = (date: string) => Boolean(date) && date < today
+  const monthOf = (date: string) => date.slice(0, 7)
 
+  // Health entries: filter by `date`.
   const oldW = data.weightLog.filter((w) => isOld(w.date))
   const oldM = data.mealLog.filter((m) => isOld(m.date))
   const oldE = data.exerciseLog.filter((e) => isOld(e.date))
-  const total = oldW.length + oldM.length + oldE.length
 
-  // Nothing stale + date already stamped → really nothing to do.
+  // Done goals with a finishing date older than today: filter by completedAt.
+  const oldG = data.goals.filter((g) => g.status === "done" && isOld(g.completedAt))
+
+  const total = oldW.length + oldM.length + oldE.length + oldG.length
+
   if (total === 0 && data.lastArchivedDate === today) return null
-  // Nothing stale but the date hasn't been stamped today → just stamp it.
   if (total === 0) {
     return {
       archivedCount: 0,
@@ -2684,33 +2732,21 @@ async function runDailyArchive(opts: {
     }
   }
 
-  // Group everything by YYYY-MM.
-  const months = new Set<string>()
-  const monthOf = (date: string) => date.slice(0, 7)
-  for (const x of oldW) months.add(monthOf(x.date))
-  for (const x of oldM) months.add(monthOf(x.date))
-  for (const x of oldE) months.add(monthOf(x.date))
+  // --- Health archive ------------------------------------------------------
+  const healthMonths = new Set<string>()
+  for (const x of oldW) healthMonths.add(monthOf(x.date))
+  for (const x of oldM) healthMonths.add(monthOf(x.date))
+  for (const x of oldE) healthMonths.add(monthOf(x.date))
 
-  // For each month, fetch what's already there and merge by id.
-  for (const month of months) {
-    const existing = await readArchiveMonth(month)
+  for (const month of healthMonths) {
+    const existing = await readHealthMonth(month)
     const inThisMonth = (date: string) => monthOf(date) === month
-
-    const mergeById = <T extends { id: string }>(have: T[], add: T[]): T[] => {
-      const seen = new Set(have.map((x) => x.id))
-      const out = [...have]
-      for (const a of add) if (!seen.has(a.id)) out.push(a)
-      return out
-    }
     const mergedW = mergeById(existing.weightLog, oldW.filter((x) => inThisMonth(x.date)))
     const mergedM = mergeById(existing.mealLog, oldM.filter((x) => inThisMonth(x.date)))
     const mergedE = mergeById(existing.exerciseLog, oldE.filter((x) => inThisMonth(x.date)))
-
-    // Sort by date for a tidy on-disk layout.
     mergedW.sort((a, b) => a.date.localeCompare(b.date))
     mergedM.sort((a, b) => a.date.localeCompare(b.date))
     mergedE.sort((a, b) => a.date.localeCompare(b.date))
-
     const result = await writeWidget("", {
       workspaceId,
       path: `dashboard/health/archive/${month}.runtime/data.json`,
@@ -2723,24 +2759,52 @@ async function runDailyArchive(opts: {
       createIfMissing: true,
     })
     if (!result.ok) {
-      throw new Error(`archive write failed for ${month}: ${result.error?.message ?? "unknown"}`)
+      throw new Error(
+        `health archive write failed for ${month}: ${result.error?.message ?? "unknown"}`,
+      )
     }
   }
 
-  // Now the originals can leave data.json. Match by id so we don't bother
-  // with date arithmetic again.
+  // --- Tasks archive -------------------------------------------------------
+  const taskMonths = new Set<string>()
+  for (const g of oldG) taskMonths.add(monthOf(g.completedAt))
+  for (const month of taskMonths) {
+    const existing = await readTasksMonth(month)
+    const inThisMonth = (g: DashboardGoal) => monthOf(g.completedAt) === month
+    const mergedG = mergeById(existing.goals, oldG.filter(inThisMonth))
+    mergedG.sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+    const result = await writeWidget("", {
+      workspaceId,
+      path: `dashboard/tasks/archive/${month}.runtime/data.json`,
+      patch: [
+        { op: "add", path: "/month", value: month },
+        { op: "add", path: "/goals", value: mergedG },
+      ],
+      createIfMissing: true,
+    })
+    if (!result.ok) {
+      throw new Error(
+        `tasks archive write failed for ${month}: ${result.error?.message ?? "unknown"}`,
+      )
+    }
+  }
+
+  // --- Trim main data.json -------------------------------------------------
   const archivedIds = new Set<string>()
   for (const x of oldW) archivedIds.add(x.id)
   for (const x of oldM) archivedIds.add(x.id)
   for (const x of oldE) archivedIds.add(x.id)
+  for (const x of oldG) archivedIds.add(x.id)
   const trimmedData: DashboardData = {
     ...data,
     weightLog: data.weightLog.filter((w) => !archivedIds.has(w.id)),
     mealLog: data.mealLog.filter((m) => !archivedIds.has(m.id)),
     exerciseLog: data.exerciseLog.filter((e) => !archivedIds.has(e.id)),
+    goals: data.goals.filter((g) => !archivedIds.has(g.id)),
     lastArchivedDate: today,
   }
-  return { archivedCount: total, updatedMonths: [...months].sort(), trimmedData }
+  const updatedMonths = [...new Set([...healthMonths, ...taskMonths])].sort()
+  return { archivedCount: total, updatedMonths, trimmedData }
 }
 
 // ---------------------------------------------------------------------------
@@ -2906,6 +2970,7 @@ function Dashboard(props: {
           "weightLog",
           "mealLog",
           "exerciseLog",
+          "goals",
           "lastArchivedDate",
         ])
         if (r.archivedCount > 0) {
@@ -2950,6 +3015,7 @@ function Dashboard(props: {
         log: [],
         kind: "personal",
         size: "",
+        completedAt: "",
       }
       setGoals((gs) => [...gs, goal])
       setFocusGoalId(goal.id)

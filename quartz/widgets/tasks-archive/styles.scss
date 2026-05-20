@@ -1,0 +1,89 @@
+.tarchive {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  margin: 0.5rem 0;
+}
+
+.tarchive__month-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--dark);
+}
+.tarchive__count {
+  color: var(--gray);
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+.tarchive__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.5rem;
+}
+
+.tarchive__goal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--lightgray);
+  border-radius: 8px;
+  background: var(--light);
+}
+
+.tarchive__goal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.tarchive__goal-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--dark);
+  text-decoration: line-through;
+  text-decoration-color: var(--gray);
+}
+.tarchive__goal-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--gray);
+  font-size: 0.72rem;
+}
+.tarchive__goal-note {
+  margin: 0;
+  color: var(--darkgray);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tarchive__goal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.tarchive__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--lightgray);
+  color: var(--darkgray);
+  font-size: 0.7rem;
+  background: color-mix(in srgb, var(--lightgray) 30%, transparent);
+
+  &--tag {
+    color: var(--gray);
+  }
+}
+
+.tarchive__empty {
+  color: var(--gray);
+  font-size: 0.85rem;
+  padding: 1rem 0.5rem;
+}

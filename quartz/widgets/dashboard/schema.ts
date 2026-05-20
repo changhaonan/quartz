@@ -57,6 +57,11 @@ export const DashboardGoalSchema = z.object({
   kind: GoalKindSchema,
   // Coarse effort bucket (S/M/L). Editable; ✨ button asks codex.
   size: GoalSizeSchema,
+  // When the goal first transitioned to status="done". YYYY-MM-DD; "" when
+  // never finished. Used by the daily archive sweep to decide which month
+  // bucket completed goals land in. Cleared if the user later flips status
+  // back to non-done.
+  completedAt: z.string().default(""),
 })
 
 // View toolbar state for the goals board — filters + sort. Persisted with the
