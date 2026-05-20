@@ -3,8 +3,8 @@ import * as Component from "./quartz/components"
 import { FileTrieNode } from "./quartz/util/fileTrie"
 
 // Explorer with the dashboard (主面板) pinned to the very top, then Quartz's
-// default folders-first / alphabetical ordering. The sortFn is serialized to
-// the client, so it must stay self-contained (no outer references).
+// default folders-first / alphabetical ordering. The sortFn / filterFn are
+// serialized to the client, so they must stay self-contained (no outer refs).
 const explorerOptions = {
   sortFn: (a: FileTrieNode, b: FileTrieNode) => {
     if (a.slug === "dashboard") return -1
@@ -16,6 +16,14 @@ const explorerOptions = {
       })
     }
     return !a.isFolder && b.isFolder ? 1 : -1
+  },
+  // Hide JSON-state sidecars (e.g. `*.runtime/`, with no .md to render) and
+  // the `probe/` test fixture. They surfaced as click-into-nothing entries.
+  filterFn: (node: FileTrieNode) => {
+    if (node.slugSegment === "tags") return false
+    if (node.slugSegment === "probe") return false
+    if (node.slugSegment.endsWith(".runtime")) return false
+    return true
   },
 }
 
