@@ -124,6 +124,17 @@ export type ExerciseEntry = z.infer<typeof ExerciseEntrySchema>
 // live as folders and .md files; the dashboard widget reads the
 // build-time aggregate (`/dashboard-aggregate.json` → `learning`).
 
+// One health archive month — what gets written to
+// dashboard/health/archive/YYYY-MM.runtime/data.json. Three sub-logs in
+// the same shape as the live data, plus the month tag for clarity.
+export const HealthArchiveMonthSchema = z.object({
+  month: z.string().default(""), // "YYYY-MM"
+  weightLog: z.array(WeightEntrySchema).default([]),
+  mealLog: z.array(MealEntrySchema).default([]),
+  exerciseLog: z.array(ExerciseEntrySchema).default([]),
+})
+export type HealthArchiveMonth = z.infer<typeof HealthArchiveMonthSchema>
+
 // Body profile — feeds the Mifflin-St Jeor BMR estimate, plus the
 // per-kind weekly capacities the goals load% is divided against. Each
 // field is optional / has a sensible default.
@@ -160,6 +171,12 @@ export const DashboardDataSchema = z.object({
   weightLog: z.array(WeightEntrySchema).default([]),
   mealLog: z.array(MealEntrySchema).default([]),
   exerciseLog: z.array(ExerciseEntrySchema).default([]),
+  // Last date the widget ran its daily archive sweep. When a fresh mount
+  // sees today > lastArchivedDate, anything in the logs older than the
+  // rolling window (currently 7 days) gets shoveled into
+  // dashboard/health/archive/<YYYY-MM>.runtime/data.json and removed from
+  // here. "" = never ran (treat as "archive now").
+  lastArchivedDate: z.string().default(""),
   profile: DashboardProfileSchema.default({
     heightCm: 0,
     birthDate: "",

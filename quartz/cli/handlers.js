@@ -849,14 +849,32 @@ async function handleWidgetWrite(req, res, argv) {
     }
   }
 
+  // `createIfMissing` lets callers (e.g. the dashboard's daily archive
+  // sweep) target a sidecar that hasn't been initialised yet — we create
+  // an empty `{}` file in the right place and the patch applies on top.
+  // The workspace path check above already constrained where this is
+  // allowed to land, so we're not opening up arbitrary filesystem writes.
+  const createIfMissing = body.createIfMissing === true
   let stat
   try {
     stat = await promises.stat(absPath)
   } catch {
-    return widgetSendJson(res, 404, {
-      ok: false,
-      error: { code: "not_found", message: `data file not found: ${filePathRel}` },
-    })
+    if (!createIfMissing) {
+      return widgetSendJson(res, 404, {
+        ok: false,
+        error: { code: "not_found", message: `data file not found: ${filePathRel}` },
+      })
+    }
+    try {
+      await promises.mkdir(path.dirname(absPath), { recursive: true })
+      await promises.writeFile(absPath, "{}\n", "utf8")
+      stat = await promises.stat(absPath)
+    } catch (e) {
+      return widgetSendJson(res, 500, {
+        ok: false,
+        error: { code: "create_failed", message: e?.message ?? "failed to create file" },
+      })
+    }
   }
 
   if (body.ifVersion != null && String(body.ifVersion) !== String(stat.mtimeMs)) {

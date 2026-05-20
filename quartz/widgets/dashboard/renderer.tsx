@@ -11,6 +11,7 @@ import React, {
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import type { JsonPatchOp, WidgetMountContext } from "../types"
+import { writeWidget } from "../client"
 import type {
   DashboardData,
   DashboardGoal,
@@ -2611,15 +2612,155 @@ function BridgeSection(props: { bridge: Aggregate["bridge"] }) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Daily health archive sweep
+//
+// Once per local day, the dashboard moves entries older than the rolling
+// window (7 days) out of data.json's weightLog/mealLog/exerciseLog and into
+// per-month sidecars under dashboard/health/archive/YYYY-MM.runtime/data.json.
+// Apple Health pull is the bridge's job — only the manually-logged + the
+// merged-into-widget series live here.
+//
+// Idempotent: archive month files are upserted with `add /<field>` of the
+// whole merged-by-id list. If the user opens the page on the same day
+// again, lastArchivedDate already matches today and the sweep is skipped.
+// ---------------------------------------------------------------------------
+const ARCHIVE_WINDOW_DAYS = 7
+
+interface ArchiveMonthBucket {
+  weightLog: WeightEntry[]
+  mealLog: MealEntry[]
+  exerciseLog: ExerciseEntry[]
+}
+
+interface ArchiveResult {
+  archivedCount: number
+  updatedMonths: string[]
+  trimmedData: DashboardData
+}
+
+// Read an existing archive month file. Returns the empty shape on 404 /
+// network error so the merger can treat first-time and subsequent runs the
+// same way.
+async function readArchiveMonth(month: string): Promise<ArchiveMonthBucket> {
+  const empty: ArchiveMonthBucket = { weightLog: [], mealLog: [], exerciseLog: [] }
+  try {
+    const res = await fetch(`/dashboard/health/archive/${month}.runtime/data.json`, {
+      cache: "no-cache",
+    })
+    if (!res.ok) return empty
+    const raw = (await res.json()) as Partial<ArchiveMonthBucket>
+    return {
+      weightLog: Array.isArray(raw.weightLog) ? raw.weightLog : [],
+      mealLog: Array.isArray(raw.mealLog) ? raw.mealLog : [],
+      exerciseLog: Array.isArray(raw.exerciseLog) ? raw.exerciseLog : [],
+    }
+  } catch {
+    return empty
+  }
+}
+
+async function runDailyArchive(opts: {
+  data: DashboardData
+  today: string
+  workspaceId: string
+}): Promise<ArchiveResult> {
+  const { data, today, workspaceId } = opts
+  // 7-day rolling window: entries dated strictly older than `cutoff` (which
+  // is today minus 7 days) get archived. Same-day entries always stay.
+  const cutoff = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() - ARCHIVE_WINDOW_DAYS)
+    const p = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  })()
+  const isOld = (date: string) => Boolean(date) && date < cutoff
+
+  const oldW = data.weightLog.filter((w) => isOld(w.date))
+  const oldM = data.mealLog.filter((m) => isOld(m.date))
+  const oldE = data.exerciseLog.filter((e) => isOld(e.date))
+  const total = oldW.length + oldM.length + oldE.length
+
+  // Nothing stale to move — still stamp the date so we don't re-check every
+  // mount today.
+  if (total === 0) {
+    return {
+      archivedCount: 0,
+      updatedMonths: [],
+      trimmedData: { ...data, lastArchivedDate: today },
+    }
+  }
+
+  // Group everything by YYYY-MM.
+  const months = new Set<string>()
+  const monthOf = (date: string) => date.slice(0, 7)
+  for (const x of oldW) months.add(monthOf(x.date))
+  for (const x of oldM) months.add(monthOf(x.date))
+  for (const x of oldE) months.add(monthOf(x.date))
+
+  // For each month, fetch what's already there and merge by id.
+  for (const month of months) {
+    const existing = await readArchiveMonth(month)
+    const inThisMonth = (date: string) => monthOf(date) === month
+
+    const mergeById = <T extends { id: string }>(have: T[], add: T[]): T[] => {
+      const seen = new Set(have.map((x) => x.id))
+      const out = [...have]
+      for (const a of add) if (!seen.has(a.id)) out.push(a)
+      return out
+    }
+    const mergedW = mergeById(existing.weightLog, oldW.filter((x) => inThisMonth(x.date)))
+    const mergedM = mergeById(existing.mealLog, oldM.filter((x) => inThisMonth(x.date)))
+    const mergedE = mergeById(existing.exerciseLog, oldE.filter((x) => inThisMonth(x.date)))
+
+    // Sort by date for a tidy on-disk layout.
+    mergedW.sort((a, b) => a.date.localeCompare(b.date))
+    mergedM.sort((a, b) => a.date.localeCompare(b.date))
+    mergedE.sort((a, b) => a.date.localeCompare(b.date))
+
+    const result = await writeWidget("", {
+      workspaceId,
+      path: `dashboard/health/archive/${month}.runtime/data.json`,
+      patch: [
+        { op: "add", path: "/month", value: month },
+        { op: "add", path: "/weightLog", value: mergedW },
+        { op: "add", path: "/mealLog", value: mergedM },
+        { op: "add", path: "/exerciseLog", value: mergedE },
+      ],
+      createIfMissing: true,
+    })
+    if (!result.ok) {
+      throw new Error(`archive write failed for ${month}: ${result.error?.message ?? "unknown"}`)
+    }
+  }
+
+  // Now the originals can leave data.json. Match by id so we don't bother
+  // with date arithmetic again.
+  const archivedIds = new Set<string>()
+  for (const x of oldW) archivedIds.add(x.id)
+  for (const x of oldM) archivedIds.add(x.id)
+  for (const x of oldE) archivedIds.add(x.id)
+  const trimmedData: DashboardData = {
+    ...data,
+    weightLog: data.weightLog.filter((w) => !archivedIds.has(w.id)),
+    mealLog: data.mealLog.filter((m) => !archivedIds.has(m.id)),
+    exerciseLog: data.exerciseLog.filter((e) => !archivedIds.has(e.id)),
+    lastArchivedDate: today,
+  }
+  return { archivedCount: total, updatedMonths: [...months].sort(), trimmedData }
+}
+
+// ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
 function Dashboard(props: {
   initialData: DashboardData
   canWrite: boolean
   bridgeOrigin: string
+  workspaceId: string
   write: WidgetMountContext<DashboardData>["write"]
 }) {
-  const { canWrite, write, bridgeOrigin } = props
+  const { canWrite, write, bridgeOrigin, workspaceId } = props
   const [data, setData] = useState<DashboardData>(props.initialData)
   const [agg, setAgg] = useState<Aggregate | null>(null)
   const [aggErr, setAggErr] = useState<string | null>(null)
@@ -2753,6 +2894,40 @@ function Dashboard(props: {
     },
     [canWrite, flush],
   )
+
+  // Daily archive — once per local day, on first mount, sweep stale entries
+  // (older than ARCHIVE_WINDOW_DAYS) into per-month sidecars and trim
+  // data.json. Runs once per Dashboard instance via the ref guard so a
+  // language toggle or aggregate refetch doesn't re-trigger it.
+  const [archiveStatus, setArchiveStatus] = useState<string | null>(null)
+  const archiveRanRef = useRef(false)
+  useEffect(() => {
+    if (!canWrite || archiveRanRef.current) return
+    const today = todayISO()
+    if (dataRef.current.lastArchivedDate === today) return
+    archiveRanRef.current = true
+    ;(async () => {
+      try {
+        const r = await runDailyArchive({ data: dataRef.current, today, workspaceId })
+        commit(() => r.trimmedData, [
+          "weightLog",
+          "mealLog",
+          "exerciseLog",
+          "lastArchivedDate",
+        ])
+        if (r.archivedCount > 0) {
+          setArchiveStatus(
+            `已归档 ${r.archivedCount} 条到 ${r.updatedMonths.join(" / ")}`,
+          )
+          window.setTimeout(() => setArchiveStatus(null), 5000)
+        }
+      } catch (e) {
+        setArchiveStatus(`归档失败:${(e as Error).message}`)
+        window.setTimeout(() => setArchiveStatus(null), 6000)
+        archiveRanRef.current = false // let it retry on next mount
+      }
+    })()
+  }, [canWrite, commit, workspaceId])
 
   const setGoals = useCallback(
     (mutate: (goals: DashboardGoal[]) => DashboardGoal[]) =>
@@ -2893,6 +3068,7 @@ function Dashboard(props: {
               : t.loadingAggregate}
           </p>
           <div className="dash-header__actions">
+            {archiveStatus && <span className="dash-save dash-save--info">{archiveStatus}</span>}
             {writeErr && (
               <span className="dash-save dash-save--error">{t.saveFailed(writeErr)}</span>
             )}
@@ -2975,6 +3151,7 @@ export function mountDashboard(ctx: WidgetMountContext<DashboardData>): () => vo
       initialData: ctx.data,
       canWrite: ctx.capabilities.canWrite,
       bridgeOrigin: ctx.capabilities.bridgeOrigin,
+      workspaceId: ctx.capabilities.workspaceId ?? "dashboard",
       write: ctx.write,
     }),
   )

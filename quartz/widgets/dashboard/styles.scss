@@ -86,6 +86,9 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   &--error {
     color: #d9534f;
   }
+  &--info {
+    color: var(--secondary);
+  }
 }
 
 // --- In-place edit fields --------------------------------------------------

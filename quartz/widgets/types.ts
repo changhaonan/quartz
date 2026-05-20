@@ -21,6 +21,10 @@ export interface WidgetWriteRequest {
   path: string
   patch: JsonPatchOp[]
   ifVersion?: string | number
+  // Create the target file (with `{}` initial content) if it doesn't
+  // exist yet. Used by the daily archive sweep to lazily materialise
+  // `dashboard/health/archive/YYYY-MM.runtime/data.json` on first write.
+  createIfMissing?: boolean
 }
 
 export interface WidgetWriteResult {
