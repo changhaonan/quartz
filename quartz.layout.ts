@@ -61,9 +61,21 @@ export const defaultContentPageLayout: PageLayout = {
     Component.Explorer(explorerOptions),
   ],
   right: [
-    Component.Graph(),
-    Component.DesktopOnly(Component.TableOfContents()),
-    Component.Backlinks(),
+    // Graph dropped 2026-05-19 — it never showed anything useful on this
+    // site, and the empty slot was crowding the centre column.
+    //
+    // The dashboard's main page is wide on its own (4-col board, radar,
+    // 2-col health) and has no useful ToC or Backlinks to show — suppress
+    // the right rail there so the widget breathes. /dashboard/learning/...
+    // sub-pages still get the rail; they read like normal article pages.
+    Component.ConditionalRender({
+      component: Component.DesktopOnly(Component.TableOfContents()),
+      condition: (page) => page.fileData.slug !== "dashboard/index",
+    }),
+    Component.ConditionalRender({
+      component: Component.Backlinks(),
+      condition: (page) => page.fileData.slug !== "dashboard/index",
+    }),
   ],
 }
 

@@ -62,10 +62,12 @@
   }
 }
 
-// Dashboard page gets a wider canvas: drop the right sidebar (graph / TOC /
-// backlinks add nothing to a dashboard) and hand its column to the center.
+// Dashboard page gets a wider canvas: drop the right sidebar (TOC / backlinks
+// add nothing to a dashboard) and hand its column to the center. Folder
+// restructure renamed the slug from "dashboard" → "dashboard/index" — the
+// selectors below match the new path.
 @media all and (min-width: 1200px) {
-  body[data-slug="dashboard"] .page > #quartz-body {
+  body[data-slug="dashboard/index"] .page > #quartz-body {
     grid-template:
       "grid-sidebar-left grid-header grid-assistant" auto
       "grid-sidebar-left grid-center grid-assistant" auto
@@ -74,7 +76,7 @@
   }
 }
 
-body[data-slug="dashboard"] .sidebar.right {
+body[data-slug="dashboard/index"] .sidebar.right {
   display: none !important;
 }
 
