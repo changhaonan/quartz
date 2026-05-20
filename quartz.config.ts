@@ -71,7 +71,10 @@ const config: QuartzConfig = {
       Plugin.Widget(),
       Plugin.BridgeFrame(),
       Plugin.GitHubFlavoredMarkdown(),
-      Plugin.TableOfContents(),
+      // collapseByDefault=true pairs with the floating ToC in custom.scss —
+      // the panel starts as just a header button on each page; the user
+      // clicks to expand. Frontmatter `collapseToc: false` still wins.
+      Plugin.TableOfContents({ collapseByDefault: true }),
       Plugin.CrawlLinks({ markdownLinkResolution: "shortest" }),
       Plugin.Description(),
       Plugin.Latex({ renderEngine: "katex" }),

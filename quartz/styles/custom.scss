@@ -9,11 +9,13 @@
 
     & > #quartz-body {
       column-gap: 12px;
+      // Right rail removed — ToC floats (position:fixed), Backlinks renders
+      // inline in afterBody. Three columns now: explorer | centre | assistant.
       grid-template:
-        "grid-sidebar-left grid-header grid-sidebar-right grid-assistant" auto
-        "grid-sidebar-left grid-center grid-sidebar-right grid-assistant" auto
-        "grid-sidebar-left grid-footer grid-sidebar-right grid-assistant" auto /
-        280px minmax(0, 1fr) 300px clamp(380px, 30vw, 600px) !important;
+        "grid-sidebar-left grid-header grid-assistant" auto
+        "grid-sidebar-left grid-center grid-assistant" auto
+        "grid-sidebar-left grid-footer grid-assistant" auto /
+        280px minmax(0, 1fr) clamp(380px, 30vw, 600px) !important;
     }
 
     & .left.sidebar {
@@ -21,9 +23,13 @@
       padding-right: 0.75rem;
     }
 
+    // .right.sidebar always exists in the DOM (renderPage always emits the
+    // div), but its slot is `[]` now. Take it out of the grid entirely so
+    // its `grid-area: grid-sidebar-right` doesn't create an implicit column.
+    // !important because base.scss's `#quartz-body .sidebar` ID-selector
+    // outranks our plain class chain.
     & .right.sidebar {
-      padding-left: 0.75rem;
-      padding-right: 0.75rem;
+      display: none !important;
     }
 
     & .center {
@@ -62,22 +68,44 @@
   }
 }
 
-// Dashboard page gets a wider canvas: drop the right sidebar (TOC / backlinks
-// add nothing to a dashboard) and hand its column to the center. Folder
-// restructure renamed the slug from "dashboard" → "dashboard/index" — the
-// selectors below match the new path.
+// Floating Table-of-Contents — pinned to the right edge of the centre column
+// just inside the assistant panel. Collapsed by default (defaultCollapsed:
+// true on the layout side); the existing toc.inline script handles the
+// click-to-toggle.
 @media all and (min-width: 1200px) {
-  body[data-slug="dashboard/index"] .page > #quartz-body {
-    grid-template:
-      "grid-sidebar-left grid-header grid-assistant" auto
-      "grid-sidebar-left grid-center grid-assistant" auto
-      "grid-sidebar-left grid-footer grid-assistant" auto /
-      280px minmax(0, 1fr) clamp(380px, 30vw, 600px) !important;
+  .page-footer .toc {
+    position: fixed;
+    top: 5rem;
+    // Sit just to the left of the assistant panel; same clamp() as the
+    // assistant column so the two stay aligned through viewport changes.
+    right: calc(clamp(380px, 30vw, 600px) + 0.9rem);
+    z-index: 5;
+    max-width: 240px;
+    max-height: 70vh;
+    background: var(--light);
+    border: 1px solid var(--lightgray);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+
+    // Expanded — let the list scroll if long.
+    & ul.toc-content {
+      overflow-y: auto;
+      max-height: calc(70vh - 2.4rem);
+    }
+    // Collapsed — shrink-wrap to just the header button.
+    &:has(button.toc-header.collapsed) {
+      padding: 0.3rem 0.7rem;
+      max-height: 2.2rem;
+    }
   }
 }
-
-body[data-slug="dashboard/index"] .sidebar.right {
-  display: none !important;
+@media all and (max-width: 1199px) {
+  // Below desktop, just inline the ToC under afterBody — no float.
+  .page-footer .toc {
+    margin: 1rem 0;
+  }
 }
 
 .bridge-frame-card[data-bridge-width="wide"] {

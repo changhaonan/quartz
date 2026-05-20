@@ -23,7 +23,25 @@ const explorerOptions = {
 export const sharedPageComponents: SharedLayout = {
   head: Component.Head(),
   header: [],
-  afterBody: [Component.WidgetHost(), Component.EnvBadge()],
+  afterBody: [
+    // ToC + Backlinks used to live in the right sidebar; the rail's been
+    // dropped to give the centre column more room. ToC stays accessible as
+    // a floating, click-to-expand panel (position:fixed, top-right of the
+    // viewport — see custom.scss). Backlinks renders inline at the bottom
+    // of the article, which is also where they're conventionally placed
+    // (e.g. Roam, Obsidian backlinks pane). The dashboard skips both — no
+    // useful ToC headings, no meaningful backlinks.
+    Component.ConditionalRender({
+      component: Component.DesktopOnly(Component.TableOfContents()),
+      condition: (page) => page.fileData.slug !== "dashboard/index",
+    }),
+    Component.ConditionalRender({
+      component: Component.Backlinks(),
+      condition: (page) => page.fileData.slug !== "dashboard/index",
+    }),
+    Component.WidgetHost(),
+    Component.EnvBadge(),
+  ],
   assistant: [Component.AiSidebar()],
   footer: Component.Footer({
     links: {
@@ -60,23 +78,10 @@ export const defaultContentPageLayout: PageLayout = {
     }),
     Component.Explorer(explorerOptions),
   ],
-  right: [
-    // Graph dropped 2026-05-19 — it never showed anything useful on this
-    // site, and the empty slot was crowding the centre column.
-    //
-    // The dashboard's main page is wide on its own (4-col board, radar,
-    // 2-col health) and has no useful ToC or Backlinks to show — suppress
-    // the right rail there so the widget breathes. /dashboard/learning/...
-    // sub-pages still get the rail; they read like normal article pages.
-    Component.ConditionalRender({
-      component: Component.DesktopOnly(Component.TableOfContents()),
-      condition: (page) => page.fileData.slug !== "dashboard/index",
-    }),
-    Component.ConditionalRender({
-      component: Component.Backlinks(),
-      condition: (page) => page.fileData.slug !== "dashboard/index",
-    }),
-  ],
+  // Right rail dropped 2026-05-19 — Graph never showed anything useful, and
+  // ToC + Backlinks have moved to `afterBody` (floating / inline). Every
+  // page gets the centre column's full width.
+  right: [],
 }
 
 // components for pages that display lists of pages  (e.g. tags or folders)
