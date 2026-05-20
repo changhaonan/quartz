@@ -249,11 +249,15 @@ function EditableField(props: {
   // Focus + select on mount — used for the row a "+ add" click just created
   // so the user can immediately type instead of hunting for the input.
   focusOnMount?: boolean
+  // Multi-line mode: renders a <textarea> that auto-grows with content
+  // (CSS `field-sizing: content`). Enter inserts a newline; the field
+  // commits on blur. Cmd/Ctrl+Enter forces a blur (commit-and-leave).
+  multiline?: boolean
   onCommit: (value: string) => void
 }) {
-  const { value, placeholder, className, ariaLabel, focusOnMount } = props
+  const { value, placeholder, className, ariaLabel, focusOnMount, multiline } = props
   const [buf, setBuf] = useState(value)
-  const ref = useRef<HTMLInputElement>(null)
+  const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
 
   // Re-sync when the canonical value changes underneath us (external refresh,
   // a rolled-back failed write). Doesn't clobber in-progress typing: an
@@ -269,28 +273,56 @@ function EditableField(props: {
     }
   }, [focusOnMount])
 
+  const cls = `dash-edit${multiline ? " dash-edit--multiline" : ""}${className ? ` ${className}` : ""}`
+  const onBlur = () => {
+    if (buf !== value) props.onCommit(buf)
+  }
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.key === "Escape") {
+      setBuf(value)
+      window.setTimeout(() => ref.current?.blur(), 0)
+      return
+    }
+    if (e.key === "Enter") {
+      if (multiline) {
+        // Cmd/Ctrl+Enter commits-and-leaves; bare Enter inserts a newline.
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault()
+          e.currentTarget.blur()
+        }
+      } else {
+        e.preventDefault()
+        e.currentTarget.blur()
+      }
+    }
+  }
+
+  if (multiline) {
+    return (
+      <textarea
+        ref={ref as React.RefObject<HTMLTextAreaElement>}
+        className={cls}
+        rows={1}
+        value={buf}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        onChange={(e) => setBuf(e.currentTarget.value)}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+      />
+    )
+  }
   return (
     <input
-      ref={ref}
-      className={`dash-edit${className ? ` ${className}` : ""}`}
+      ref={ref as React.RefObject<HTMLInputElement>}
+      className={cls}
       type="text"
       value={buf}
       placeholder={placeholder}
       aria-label={ariaLabel}
       onChange={(e) => setBuf(e.currentTarget.value)}
-      onBlur={() => {
-        if (buf !== value) props.onCommit(buf)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault()
-          e.currentTarget.blur()
-        } else if (e.key === "Escape") {
-          setBuf(value)
-          // blur on the next tick so the reverted buffer is in place first.
-          window.setTimeout(() => ref.current?.blur(), 0)
-        }
-      }}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
     />
   )
 }
@@ -642,6 +674,7 @@ function GoalCard(props: {
             value={g.note}
             placeholder={t.notePlaceholder}
             ariaLabel={t.goalNoteAria}
+            multiline
             onCommit={(note) => props.onPatch({ note })}
           />
         ) : (
@@ -892,6 +925,10 @@ function GoalsSection(props: {
   const allTags = [...new Set(goals.flatMap((g) => g.tags))].sort()
   const filterActive = view.filterPriority !== "all" || view.filterTag !== ""
   const visible = goals.filter((g) => matchesView(g, view))
+  const doneCount = goals.filter((g) => g.status === "done").length
+  // "done" is hidden by default — it's effectively archive. The toolbar
+  // toggle (with its count) reveals the column on demand.
+  const columns = view.showDone ? BOARD_STATUSES : BOARD_STATUSES.filter((s) => s !== "done")
 
   // Summary pills: per-kind tier-aware load. Only "doing" counts as
   // load (todo / paused / done don't). Pill % = max stretched tier; the
@@ -955,6 +992,16 @@ function GoalsSection(props: {
                 <option key={v} value={v}>{`${t.word.sort} · ${t.sortKey[v]}`}</option>
               ))}
             </select>
+            <button
+              type="button"
+              className={`dash-vtoggle${view.showDone ? " is-on" : ""}`}
+              aria-label={t.toggleDoneAria}
+              aria-pressed={view.showDone}
+              onClick={() => props.setView({ showDone: !view.showDone })}
+              title={t.toggleDoneAria}
+            >
+              {t.doneToggle(doneCount)}
+            </button>
           </div>
         )}
       </div>
@@ -989,8 +1036,8 @@ function GoalsSection(props: {
           tone={overdueCount > 0 ? "warn" : undefined}
         />
       </div>
-      <div className="dash-board">
-        {BOARD_STATUSES.map((status) => (
+      <div className={`dash-board dash-board--cols-${columns.length}`}>
+        {columns.map((status) => (
           <GoalColumn
             key={status}
             status={status}

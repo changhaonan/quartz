@@ -66,11 +66,14 @@ export interface Strings {
   logDelete: string
 
   // view toolbar
-  filterStatusAria: string
   filterPriorityAria: string
   filterTagAria: string
   sortAria: string
   sortKey: Record<DashboardView["sort"], string>
+  toggleDoneAria: string
+  // Label for the toolbar toggle that reveals the "done" column. The arg is
+  // the number of completed goals so the user knows there's something to see.
+  doneToggle: (count: number) => string
 
   // --- health ---
   healthTitle: string
@@ -227,11 +230,12 @@ const zhCN: Strings = {
   logEmpty: "还没有进展记录。",
   logDelete: "删除这条进展",
 
-  filterStatusAria: "按状态筛选",
   filterPriorityAria: "按优先级筛选",
   filterTagAria: "按标签筛选",
   sortAria: "排序",
   sortKey: { manual: "手动", priority: "优先级", dueDate: "截止日期", status: "状态" },
+  toggleDoneAria: "显示/隐藏已完成栏",
+  doneToggle: (n) => `已完成 ${n}`,
 
   healthTitle: "健康",
   healthError: (msg) => `无法读取健康数据:${msg}。`,
@@ -398,11 +402,12 @@ const enUS: Strings = {
   logEmpty: "No progress entries yet.",
   logDelete: "Delete this entry",
 
-  filterStatusAria: "Filter by status",
   filterPriorityAria: "Filter by priority",
   filterTagAria: "Filter by tag",
   sortAria: "Sort",
   sortKey: { manual: "Manual", priority: "Priority", dueDate: "Due date", status: "Status" },
+  toggleDoneAria: "Show/hide the done column",
+  doneToggle: (n) => `Done ${n}`,
 
   healthTitle: "Health",
   healthError: (msg) => `Cannot read health data: ${msg}.`,

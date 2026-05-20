@@ -113,6 +113,20 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   }
 }
 
+// Multi-line editable field — used for the goal-card note. Auto-grows with
+// content (modern browsers) via `field-sizing: content`; we still set a
+// reasonable minimum and disable the manual resize handle so the card
+// stays tidy.
+.dash-edit--multiline {
+  resize: none;
+  field-sizing: content;
+  min-height: calc(1em + 0.4rem);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
 // --- Sections --------------------------------------------------------------
 // No box around a section — just a heading and its content. Consecutive
 // sections get a hairline rule so the panel still reads as distinct zones.
@@ -255,17 +269,61 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   }
 }
 
+// Toolbar button that toggles a view boolean (currently: showDone).
+// Matches .dash-vselect chrome so the toolbar reads as one set of controls.
+.dash-vtoggle {
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--darkgray);
+  background: transparent;
+  border: 1px solid $dash-hairline;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s,
+    color 0.12s;
+
+  &:hover {
+    border-color: var(--gray);
+    background: $dash-fill;
+  }
+  &.is-on {
+    color: var(--dark);
+    border-color: var(--tertiary);
+    background: var(--lightgray);
+  }
+}
+
 .dash-board {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.5rem;
   align-items: start;
 
+  // Done hidden → 3 columns; revealed → 4. Use modifier classes so the
+  // grid actually rebalances instead of leaving an empty 4th slot.
+  &--cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  &--cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
   @media (max-width: 900px) {
     grid-template-columns: repeat(2, 1fr);
+    &--cols-3,
+    &--cols-4 {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   @media (max-width: 520px) {
     grid-template-columns: 1fr;
+    &--cols-3,
+    &--cols-4 {
+      grid-template-columns: 1fr;
+    }
   }
 }
 
@@ -458,6 +516,9 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   &__note {
     font-size: 0.74rem;
     color: var(--gray);
+    // Preserve manual line breaks the editor entered.
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   &__note-input {
     font-size: 0.74rem;

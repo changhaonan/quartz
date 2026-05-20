@@ -65,6 +65,9 @@ export const DashboardViewSchema = z.object({
   filterPriority: z.enum(["all", "none", "low", "mid", "high"]).default("all"),
   filterTag: z.string().default(""),
   sort: z.enum(["manual", "priority", "dueDate", "status"]).default("manual"),
+  // Hide the "done" column by default — completed goals are essentially
+  // archived. The toolbar exposes a toggle ("已完成 N") to reveal them.
+  showDone: z.boolean().default(false),
 })
 export type DashboardView = z.infer<typeof DashboardViewSchema>
 
@@ -162,6 +165,7 @@ export const DashboardDataSchema = z.object({
     filterPriority: "all",
     filterTag: "",
     sort: "manual",
+    showDone: false,
   }),
 })
 
