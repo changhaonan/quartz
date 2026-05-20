@@ -134,35 +134,15 @@ export interface Strings {
   exerciseNameAria: string
   removeExercise: string
 
-  // --- learning ---
+  // --- learning (folder-driven; read-only on the dashboard) ---
   learningTitle: string
   learningEmpty: string
   learningSummaryCount: (n: number) => string
   learningSummaryGap: string
-  // domains
-  domainsHeader: string
-  addDomain: string
-  domainPlaceholder: string
-  domainLabelAria: string
-  domainCurrentAria: string
-  domainTargetAria: string
-  domainCurrent: string
-  domainTarget: string
-  domainNoteAria: string
-  removeDomain: string
-  // radar
+  learningSummaryArticles: string
+  learningOpenHub: string
+  // radar hint when fewer than 3 domains exist
   radarHint: string
-  radarLegendCurrent: string
-  radarLegendTarget: string
-  // tasks
-  learningTasksHeader: string
-  addLearningTask: string
-  learningTaskPlaceholder: string
-  learningTaskAria: string
-  learningTaskDomainAria: string
-  learningTaskDoneAria: string
-  removeLearningTask: string
-  learningTaskNoDomain: string
 
   // --- finance ---
   financeTitle: string
@@ -323,30 +303,12 @@ const zhCN: Strings = {
   removeExercise: "删除这一项",
 
   learningTitle: "学习",
-  learningEmpty: "添加你关注的领域,看看离 SOTA 还有多远。",
+  learningEmpty: "在 content/dashboard/learning/ 下创建领域文件夹,加上 index.md 和文章 .md(frontmatter 写 status / understood)即可显示。",
   learningSummaryCount: (n) => `${n} 个领域`,
   learningSummaryGap: "离 SOTA",
-  domainsHeader: "领域",
-  addDomain: "+ 领域",
-  domainPlaceholder: "领域名称…",
-  domainLabelAria: "领域名称",
-  domainCurrentAria: "当前水平",
-  domainTargetAria: "目标水平",
-  domainCurrent: "当前",
-  domainTarget: "目标",
-  domainNoteAria: "领域备注",
-  removeDomain: "删除领域",
-  radarHint: "添加至少 3 个领域以渲染雷达图。",
-  radarLegendCurrent: "当前",
-  radarLegendTarget: "目标",
-  learningTasksHeader: "学习任务",
-  addLearningTask: "+ 任务",
-  learningTaskPlaceholder: "下一步要做什么…",
-  learningTaskAria: "学习任务",
-  learningTaskDomainAria: "所属领域",
-  learningTaskDoneAria: "标记完成",
-  removeLearningTask: "删除任务",
-  learningTaskNoDomain: "不限领域",
+  learningSummaryArticles: "已读",
+  learningOpenHub: "打开学习区 →",
+  radarHint: "至少 3 个领域才渲染雷达图。",
 
   financeTitle: "财务",
   financeParseError: (msg) => `财务文件解析失败:${msg}`,
@@ -521,30 +483,12 @@ const enUS: Strings = {
   removeExercise: "Delete this entry",
 
   learningTitle: "Learning",
-  learningEmpty: "Add the domains you care about to see how far you are from SOTA.",
+  learningEmpty: "Create domain folders under content/dashboard/learning/, add index.md and article .md files (status / understood in frontmatter) to populate this.",
   learningSummaryCount: (n) => `${n} domains`,
   learningSummaryGap: "Gap to SOTA",
-  domainsHeader: "Domains",
-  addDomain: "+ Domain",
-  domainPlaceholder: "Domain name…",
-  domainLabelAria: "Domain name",
-  domainCurrentAria: "Current level",
-  domainTargetAria: "Target level",
-  domainCurrent: "Current",
-  domainTarget: "Target",
-  domainNoteAria: "Domain note",
-  removeDomain: "Delete domain",
-  radarHint: "Add at least 3 domains to render the radar.",
-  radarLegendCurrent: "Current",
-  radarLegendTarget: "Target",
-  learningTasksHeader: "Learning tasks",
-  addLearningTask: "+ Task",
-  learningTaskPlaceholder: "What's the next rep…",
-  learningTaskAria: "Learning task",
-  learningTaskDomainAria: "Linked domain",
-  learningTaskDoneAria: "Mark done",
-  removeLearningTask: "Delete task",
-  learningTaskNoDomain: "Any domain",
+  learningSummaryArticles: "Read",
+  learningOpenHub: "Open learning hub →",
+  radarHint: "At least 3 domains required for the radar.",
 
   financeTitle: "Finance",
   financeParseError: (msg) => `Finance file failed to parse: ${msg}`,

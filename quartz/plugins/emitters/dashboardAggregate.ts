@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import matter from "gray-matter"
 import { QuartzEmitterPlugin } from "../types"
 import { BuildCtx } from "../../util/ctx"
 import { FilePath, FullSlug, slugifyFilePath } from "../../util/path"
@@ -27,11 +28,65 @@ interface ThoughtEntry {
   mtime: string
 }
 
+// --- Learning tree ---------------------------------------------------------
+//
+// Walks `content/dashboard/learning/**` and rolls up:
+//   domain/         → has subdomains (folders) and a per-domain index
+//     subdomain/    → has articles (leaf .md, non-index) and an index
+//       article.md  → frontmatter is the source of truth for progress
+//
+// Each level's stats (article count, read count, mean understood) are
+// pre-computed here so the widget reads a flat-ish shape, not a tree it
+// has to traverse to render.
+
+type ArticleStatus = "unread" | "reading" | "read"
+
+interface LearningArticle {
+  slug: string
+  title: string
+  status: ArticleStatus
+  understood: number // 0–100
+  source: string // optional external URL from frontmatter
+}
+
+interface LearningStats {
+  // Totals for this node (counts every leaf article below it).
+  articles: number
+  read: number
+  reading: number
+  // Mean `understood` across articles below this node (0 if none).
+  understood: number
+}
+
+interface LearningSubdomain {
+  id: string
+  label: string
+  slug: string
+  articles: LearningArticle[]
+  stats: LearningStats
+}
+
+interface LearningDomainNode {
+  id: string
+  label: string
+  slug: string
+  target: number // optional frontmatter `target` on the domain index (default 100)
+  subdomains: LearningSubdomain[]
+  stats: LearningStats
+}
+
+interface LearningTree {
+  domains: LearningDomainNode[]
+  // Top-level totals — useful for the summary pill on the main dashboard.
+  stats: LearningStats
+}
+
 interface DashboardAggregate {
   generatedAt: string
   finance: { file: string | null; data: unknown | null; error: string | null }
   workflows: WorkflowSummary[]
   thoughts: { total: number; recent: ThoughtEntry[] }
+  learning: LearningTree
   bridge: {
     ok: boolean
     origin: string
@@ -167,6 +222,142 @@ function collectThoughts(
   return { total: entries.length, recent }
 }
 
+// Read the frontmatter of a .md file, defensively — a malformed file
+// shouldn't break the build.
+function readFrontmatter(abs: string): Record<string, unknown> {
+  try {
+    const src = fs.readFileSync(abs, "utf8")
+    const parsed = matter(src)
+    return (parsed.data ?? {}) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+function asStatus(v: unknown): ArticleStatus {
+  return v === "read" || v === "reading" || v === "unread" ? v : "unread"
+}
+function asPct(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : 0
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(100, n))
+}
+
+// Roll a list of articles up into a stats block. Mean understood is over
+// the whole bucket so a half-read 0%-understood article still drags the
+// number down — that's the picture we want ("how much have you really
+// internalised", not "of the ones you opened, how confident").
+function rollupArticles(articles: LearningArticle[]): LearningStats {
+  if (articles.length === 0) return { articles: 0, read: 0, reading: 0, understood: 0 }
+  let read = 0
+  let reading = 0
+  let und = 0
+  for (const a of articles) {
+    if (a.status === "read") read++
+    else if (a.status === "reading") reading++
+    und += a.understood
+  }
+  return {
+    articles: articles.length,
+    read,
+    reading,
+    understood: Math.round(und / articles.length),
+  }
+}
+
+function rollupSubdomains(subdomains: LearningSubdomain[]): LearningStats {
+  // Concatenate every article across subdomains, then roll up — so the
+  // domain mean is the article-weighted mean, not the mean of means.
+  const all = subdomains.flatMap((s) => s.articles)
+  return rollupArticles(all)
+}
+
+function collectLearning(contentRoot: string): LearningTree {
+  const root = path.join(contentRoot, "dashboard", "learning")
+  const exists = fs.existsSync(root) && fs.statSync(root).isDirectory()
+  if (!exists) return { domains: [], stats: rollupArticles([]) }
+
+  const slugOf = (abs: string): string => {
+    const rel = path.relative(contentRoot, abs).split(path.sep).join("/")
+    return slugifyFilePath(rel as FilePath)
+  }
+
+  // Layer 1: each subdir of learning/ is a domain.
+  const domainEntries = fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+
+  const domains: LearningDomainNode[] = []
+  for (const dEntry of domainEntries) {
+    const dDir = path.join(root, dEntry.name)
+    const dIndex = path.join(dDir, "index.md")
+    const dMeta = fs.existsSync(dIndex) ? readFrontmatter(dIndex) : {}
+    const dLabel = (dMeta.title as string) || dEntry.name
+    const dTarget = asPct((dMeta as { target?: unknown }).target ?? 100) || 100
+
+    // Layer 2: each subdir of <domain>/ is a subdomain.
+    const subEntries = fs
+      .readdirSync(dDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+
+    const subdomains: LearningSubdomain[] = []
+    for (const sEntry of subEntries) {
+      const sDir = path.join(dDir, sEntry.name)
+      const sIndex = path.join(sDir, "index.md")
+      const sMeta = fs.existsSync(sIndex) ? readFrontmatter(sIndex) : {}
+      const sLabel = (sMeta.title as string) || sEntry.name
+
+      // Layer 3: every .md in this dir, except index.md, is an article.
+      let files: fs.Dirent[] = []
+      try {
+        files = fs.readdirSync(sDir, { withFileTypes: true })
+      } catch {
+        files = []
+      }
+      const articles: LearningArticle[] = []
+      for (const f of files) {
+        if (!f.isFile() || !f.name.endsWith(".md")) continue
+        if (f.name === "index.md") continue
+        const abs = path.join(sDir, f.name)
+        const meta = readFrontmatter(abs)
+        articles.push({
+          slug: slugOf(abs),
+          title: (meta.title as string) || f.name.replace(/\.md$/, ""),
+          status: asStatus(meta.status),
+          understood: asPct(meta.understood),
+          source: typeof meta.source === "string" ? meta.source : "",
+        })
+      }
+      // Stable order: read & reading first by mtime-equivalent (title sort),
+      // unread next. Within each group, by title.
+      articles.sort((a, b) => a.title.localeCompare(b.title))
+
+      subdomains.push({
+        id: `${dEntry.name}/${sEntry.name}`,
+        label: sLabel,
+        slug: slugOf(sDir),
+        articles,
+        stats: rollupArticles(articles),
+      })
+    }
+    subdomains.sort((a, b) => a.label.localeCompare(b.label))
+
+    domains.push({
+      id: dEntry.name,
+      label: dLabel,
+      slug: slugOf(dDir),
+      target: dTarget,
+      subdomains,
+      stats: rollupSubdomains(subdomains),
+    })
+  }
+  domains.sort((a, b) => a.label.localeCompare(b.label))
+
+  // Tree-wide rollup: every article, everywhere.
+  const allArticles = domains.flatMap((d) => d.subdomains.flatMap((s) => s.articles))
+  return { domains, stats: rollupArticles(allArticles) }
+}
+
 async function collectBridge(): Promise<DashboardAggregate["bridge"]> {
   const origin = process.env.WORKFLOW_BRIDGE_URL ?? "http://127.0.0.1:3210"
   const result: DashboardAggregate["bridge"] = {
@@ -217,6 +408,7 @@ async function generate(ctx: BuildCtx): Promise<DashboardAggregate> {
     finance: collectFinance(contentRoot),
     workflows: collectWorkflows(contentRoot, collected.dirs),
     thoughts: collectThoughts(contentRoot, collected.files),
+    learning: collectLearning(contentRoot),
     bridge: await collectBridge(),
   }
 }

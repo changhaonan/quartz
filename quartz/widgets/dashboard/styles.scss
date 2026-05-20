@@ -179,7 +179,8 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
 // --- Learning section: radar + domain editor + task list ------------------
 //
 // 2-col layout: radar fills the left, domain editor stacks on the right.
-// Tasks span the full width underneath so a longer list breathes.
+// Cards span the full width on the right of the radar — one per big domain,
+// each a clickable link into the folder.
 .dash-learning {
   display: grid;
   grid-template-columns: minmax(260px, 360px) 1fr;
@@ -196,16 +197,10 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
     justify-content: center;
   }
 
-  &__domains {
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-  }
-
-  &__tasks {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
+  &__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.5rem;
   }
 }
 
@@ -230,154 +225,89 @@ $dash-fill-hover: color-mix(in srgb, var(--lightgray) 52%, transparent);
   }
 }
 
-.dash-domain {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.2rem;
-  padding: 0.45rem 0.55rem;
+// One domain card — title + progress bar + counts + subdomain chips.
+// The whole card is a link into the folder index page.
+.dash-ldomain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.55rem 0.65rem;
   border: 1px solid $dash-hairline;
   border-radius: 8px;
   background: var(--light);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s,
+    background 0.12s;
+
+  &:hover {
+    border-color: var(--gray);
+    background: $dash-fill;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  }
 
   &__head {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
   &__label {
-    flex: 1;
-    font-weight: 600;
-    font-size: 0.82rem;
+    font-weight: 650;
+    font-size: 0.86rem;
   }
-  &__remove {
-    flex: none;
-    border: none;
-    background: none;
+  &__pct {
+    color: var(--secondary);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.84rem;
+  }
+  &__meta {
     color: var(--gray);
-    cursor: pointer;
-    font-size: 0.74rem;
-    line-height: 1;
-    opacity: 0;
-    transition:
-      opacity 0.12s,
-      color 0.12s;
-    &:hover {
-      color: #d9534f;
+    font-size: 0.7rem;
+  }
+  &__subs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.1rem;
+  }
+  &__sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    border: 1px solid $dash-hairline;
+    color: var(--darkgray);
+    font-size: 0.68rem;
+    background: color-mix(in srgb, var(--lightgray) 30%, transparent);
+
+    &--more {
+      color: var(--gray);
     }
   }
-  &:hover &__remove {
-    opacity: 1;
-  }
-
-  &__slider {
-    display: grid;
-    grid-template-columns: 3rem 1fr 1.8rem;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.72rem;
-    color: var(--gray);
-  }
-  &__slider-label {
-    text-align: right;
-  }
-  &__slider-value {
-    text-align: right;
-    color: var(--darkgray);
+  &__sub-pct {
+    color: var(--secondary);
     font-variant-numeric: tabular-nums;
   }
-  &__range {
-    width: 100%;
-    accent-color: var(--secondary);
-  }
-  &__range--target {
-    accent-color: color-mix(in srgb, var(--secondary) 50%, transparent);
-  }
 }
 
-// Learning task list — flat list with a checkbox, title, domain chip,
-// and a hover-only remove control.
-.dash-ltasks {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
+// A thin progress bar — used in domain cards. Inherits secondary as the
+// fill so dark/light themes both look right.
+.dash-pbar {
+  height: 6px;
+  background: color-mix(in srgb, var(--lightgray) 60%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
 
-.dash-ltask {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.32rem 0.5rem;
-  border-radius: 6px;
-  transition:
-    background 0.12s,
-    opacity 0.12s;
-
-  &:hover {
-    background: $dash-fill;
+  &__fill {
+    height: 100%;
+    background: var(--secondary);
+    border-radius: 999px;
+    transition: width 0.18s;
   }
-
-  &.is-done {
-    opacity: 0.55;
-    .dash-ltask__title {
-      text-decoration: line-through;
-    }
-  }
-
-  &__check {
-    flex: none;
-    cursor: pointer;
-    accent-color: var(--secondary);
-  }
-
-  &__title {
-    flex: 1;
-    min-width: 0;
-    font-size: 0.82rem;
-  }
-
-  &__domain {
-    flex: none;
-    font: inherit;
-    font-size: 0.7rem;
-    color: var(--darkgray);
-    background: transparent;
-    border: 1px solid $dash-hairline;
-    border-radius: 6px;
-    padding: 0.12rem 0.4rem;
-    cursor: pointer;
-
-    &--ro {
-      cursor: default;
-    }
-  }
-
-  &__remove {
-    flex: none;
-    border: none;
-    background: none;
-    color: var(--gray);
-    cursor: pointer;
-    font-size: 0.72rem;
-    line-height: 1;
-    opacity: 0;
-    transition: opacity 0.12s;
-    &:hover {
-      color: #d9534f;
-    }
-  }
-  &:hover &__remove {
-    opacity: 1;
-  }
-}
-
-.dash-h3 {
-  margin: 0 0 0.05rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--darkgray);
 }
 
 .dash-empty {

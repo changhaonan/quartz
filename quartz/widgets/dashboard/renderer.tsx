@@ -23,8 +23,6 @@ import type {
   GoalPriority,
   GoalSize,
   GoalStatus,
-  LearningDomain,
-  LearningTask,
   MealEntry,
   MealType,
   WeightEntry,
@@ -54,6 +52,39 @@ function readGlobalLocale(): DashLocale {
 // Kept structural/loose: the panel renders defensively so a missing or
 // malformed section degrades gracefully instead of throwing.
 // ---------------------------------------------------------------------------
+interface AggLearningArticle {
+  slug: string
+  title: string
+  status: "unread" | "reading" | "read"
+  understood: number
+  source: string
+}
+interface AggLearningStats {
+  articles: number
+  read: number
+  reading: number
+  understood: number
+}
+interface AggLearningSubdomain {
+  id: string
+  label: string
+  slug: string
+  articles: AggLearningArticle[]
+  stats: AggLearningStats
+}
+interface AggLearningDomain {
+  id: string
+  label: string
+  slug: string
+  target: number
+  subdomains: AggLearningSubdomain[]
+  stats: AggLearningStats
+}
+interface AggLearningTree {
+  domains: AggLearningDomain[]
+  stats: AggLearningStats
+}
+
 interface Aggregate {
   generatedAt?: string
   finance?: { file?: string | null; data?: any; error?: string | null }
@@ -65,6 +96,7 @@ interface Aggregate {
     latestStatus: string | null
   }>
   thoughts?: { total?: number; recent?: Array<{ title: string; slug: string; mtime: string }> }
+  learning?: AggLearningTree
   bridge?: {
     ok?: boolean
     origin?: string
@@ -1078,14 +1110,22 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(100, n))
 // at the perimeter), the per-domain current polygon (filled), an optional
 // target polygon (dashed outline). Axes are arranged starting at 12 o'clock
 // and proceeding clockwise so the natural reading order matches.
+// One axis on the radar — kept structural so the same component can be
+// fed in-widget data or the build-time aggregate without an adapter.
+interface RadarAxis {
+  label: string
+  current: number // 0–100
+  target: number // 0–100
+}
+
 function LearningRadar(props: {
-  domains: LearningDomain[]
+  axes: RadarAxis[]
   // total svg width — height auto-computed to leave room for the labels.
   width: number
 }) {
   const t = useStrings()
   const gradId = useId()
-  const n = props.domains.length
+  const n = props.axes.length
   // Reserve room around the polygon for axis labels.
   const pad = 38
   const w = props.width
@@ -1114,13 +1154,13 @@ function LearningRadar(props: {
   // Spokes — one per axis.
   const spokes = Array.from({ length: n }, (_, i) => pt(i, 1))
   // Filled "current" polygon and outlined "target" polygon.
-  const currentPts = props.domains.map((d, i) => pt(i, clamp01(d.current) / 100))
-  const targetPts = props.domains.map((d, i) => pt(i, clamp01(d.target) / 100))
+  const currentPts = props.axes.map((d, i) => pt(i, clamp01(d.current) / 100))
+  const targetPts = props.axes.map((d, i) => pt(i, clamp01(d.target) / 100))
   const poly = (pts: { x: number; y: number }[]) =>
     pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
 
   // Label placement — slightly outside the outermost ring along each axis.
-  const labels = props.domains.map((d, i) => {
+  const labels = props.axes.map((d, i) => {
     const a = angle(i)
     const lr = r + 14
     const x = cx + lr * Math.cos(a)
@@ -1213,213 +1253,80 @@ function LearningRadar(props: {
   )
 }
 
-// One row in the right-hand domain editor — label + sliders + remove.
-function DomainEditor(props: {
-  domain: LearningDomain
-  canWrite: boolean
-  onPatch: (patch: Partial<LearningDomain>) => void
-  onRemove: () => void
-}) {
-  const t = useStrings()
-  const { domain: d, canWrite } = props
-  const current = clamp01(d.current)
-  const target = clamp01(d.target)
+// A horizontal progress bar — used inside the domain cards.
+function ProgressBar(props: { value: number; max: number }) {
+  const pct = props.max > 0 ? Math.max(0, Math.min(100, (props.value / props.max) * 100)) : 0
   return (
-    <div className="dash-domain">
-      <div className="dash-domain__head">
-        {canWrite ? (
-          <EditableField
-            className="dash-domain__label"
-            value={d.label}
-            placeholder={t.domainPlaceholder}
-            ariaLabel={t.domainLabelAria}
-            onCommit={(v) => props.onPatch({ label: v })}
-          />
-        ) : (
-          <span className="dash-domain__label">{d.label || "—"}</span>
-        )}
-        {canWrite && (
-          <button
-            className="dash-domain__remove"
-            title={t.removeDomain}
-            aria-label={t.removeDomain}
-            onClick={props.onRemove}
-          >
-            ✕
-          </button>
-        )}
-      </div>
-      <div className="dash-domain__slider">
-        <label className="dash-domain__slider-label">{t.domainCurrent}</label>
-        <input
-          className="dash-domain__range dash-domain__range--current"
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={current}
-          disabled={!canWrite}
-          aria-label={t.domainCurrentAria}
-          onChange={(e) => props.onPatch({ current: Number(e.currentTarget.value) })}
-        />
-        <span className="dash-domain__slider-value">{current}</span>
-      </div>
-      <div className="dash-domain__slider">
-        <label className="dash-domain__slider-label">{t.domainTarget}</label>
-        <input
-          className="dash-domain__range dash-domain__range--target"
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={target}
-          disabled={!canWrite}
-          aria-label={t.domainTargetAria}
-          onChange={(e) => props.onPatch({ target: Number(e.currentTarget.value) })}
-        />
-        <span className="dash-domain__slider-value">{target}</span>
-      </div>
+    <div className="dash-pbar" role="progressbar" aria-valuemin={0} aria-valuemax={props.max} aria-valuenow={props.value}>
+      <div className="dash-pbar__fill" style={{ width: `${pct}%` }} />
     </div>
   )
 }
 
-// One row in the learning task list — title, domain select, done checkbox.
-function LearningTaskRow(props: {
-  task: LearningTask
-  domains: LearningDomain[]
-  canWrite: boolean
-  focusOnMount: boolean
-  onPatch: (patch: Partial<LearningTask>) => void
-  onRemove: () => void
-}) {
-  const t = useStrings()
-  const { task, domains, canWrite } = props
-  const onToggle = () => {
-    const next = !task.done
-    props.onPatch({
-      done: next,
-      completedAt: next ? new Date().toISOString() : "",
-    })
-  }
+// One domain card on the dashboard summary — shows progress + subdomain
+// breakdown. Card title links into the folder so the user can drill in.
+function LearningDomainCard(props: { domain: AggLearningDomain }) {
+  const { domain: d } = props
   return (
-    <li className={`dash-ltask${task.done ? " is-done" : ""}`}>
-      <input
-        type="checkbox"
-        className="dash-ltask__check"
-        checked={task.done}
-        disabled={!canWrite}
-        aria-label={t.learningTaskDoneAria}
-        onChange={onToggle}
-      />
-      {canWrite ? (
-        <EditableField
-          className="dash-ltask__title"
-          value={task.title}
-          placeholder={t.learningTaskPlaceholder}
-          ariaLabel={t.learningTaskAria}
-          focusOnMount={props.focusOnMount}
-          onCommit={(v) => props.onPatch({ title: v })}
-        />
-      ) : (
-        <span className="dash-ltask__title">{task.title || "—"}</span>
-      )}
-      {canWrite ? (
-        <select
-          className="dash-ltask__domain"
-          value={task.domainId}
-          aria-label={t.learningTaskDomainAria}
-          onChange={(e) => props.onPatch({ domainId: e.currentTarget.value })}
-        >
-          <option value="">{t.learningTaskNoDomain}</option>
-          {domains.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.label || "—"}
-            </option>
+    <a className="dash-ldomain" href={`/${d.slug}/`}>
+      <div className="dash-ldomain__head">
+        <span className="dash-ldomain__label">{d.label}</span>
+        <span className="dash-ldomain__pct">{d.stats.understood}%</span>
+      </div>
+      <ProgressBar value={d.stats.understood} max={100} />
+      <div className="dash-ldomain__meta">
+        {d.subdomains.length}领域 · {d.stats.read}/{d.stats.articles} 已读
+        {d.stats.reading > 0 ? ` · ${d.stats.reading} 在读` : ""}
+      </div>
+      {d.subdomains.length > 0 && (
+        <div className="dash-ldomain__subs">
+          {d.subdomains.slice(0, 4).map((s) => (
+            <span key={s.id} className="dash-ldomain__sub" title={`${s.stats.read}/${s.stats.articles}`}>
+              {s.label}
+              <span className="dash-ldomain__sub-pct">{s.stats.understood}%</span>
+            </span>
           ))}
-        </select>
-      ) : (
-        <span className="dash-ltask__domain dash-ltask__domain--ro">
-          {domains.find((d) => d.id === task.domainId)?.label || t.learningTaskNoDomain}
-        </span>
+          {d.subdomains.length > 4 && (
+            <span className="dash-ldomain__sub dash-ldomain__sub--more">
+              +{d.subdomains.length - 4}
+            </span>
+          )}
+        </div>
       )}
-      {canWrite && (
-        <button
-          className="dash-ltask__remove"
-          title={t.removeLearningTask}
-          aria-label={t.removeLearningTask}
-          onClick={props.onRemove}
-        >
-          ✕
-        </button>
-      )}
-    </li>
+    </a>
   )
 }
 
-// The Learning section itself — radar on the left, controls on the right,
-// task list spanning underneath. Empty state nudges adding a first domain.
-function LearningSection(props: {
-  domains: LearningDomain[]
-  tasks: LearningTask[]
-  canWrite: boolean
-  focusTaskId: string | null
-  setDomains: (mutate: (d: LearningDomain[]) => LearningDomain[]) => void
-  setTasks: (mutate: (t: LearningTask[]) => LearningTask[]) => void
-  onAddDomain: () => void
-  onAddLearningTask: () => void
-}) {
+// Read-only learning section on the main dashboard. The folder tree
+// (`content/dashboard/learning/**`) is the source of truth — the
+// DashboardAggregate emitter walks it at build time, rolls up per
+// domain / subdomain, and the section here just renders that picture.
+// Editing happens by adding folders / .md files / frontmatter, or via
+// the deeper hub pages (Phase 3).
+function LearningSection(props: { learning: AggLearningTree | undefined }) {
   const t = useStrings()
-  const { domains, tasks, canWrite } = props
+  const learning = props.learning ?? { domains: [], stats: { articles: 0, read: 0, reading: 0, understood: 0 } }
+  const { domains } = learning
 
-  const patchDomain = (id: string, patch: Partial<LearningDomain>) => {
-    props.setDomains((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
-  }
-  const removeDomain = (id: string) => {
-    props.setDomains((ds) => ds.filter((d) => d.id !== id))
-    // Loosen tasks linked to the deleted domain — keep the task, drop the FK.
-    props.setTasks((ts) => ts.map((t0) => (t0.domainId === id ? { ...t0, domainId: "" } : t0)))
-  }
-  const patchTask = (id: string, patch: Partial<LearningTask>) => {
-    props.setTasks((ts) => ts.map((t0) => (t0.id === id ? { ...t0, ...patch } : t0)))
-  }
-  const removeTask = (id: string) => {
-    props.setTasks((ts) => ts.filter((t0) => t0.id !== id))
-  }
+  const axes: RadarAxis[] = domains.map((d) => ({
+    label: d.label,
+    current: d.stats.understood,
+    target: d.target,
+  }))
 
-  // Sort tasks: open first (in insertion order), then done (newest completion
-  // first so the most recent "win" is visible).
-  const sortedTasks = [...tasks].sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1
-    if (a.done) return (b.completedAt || "").localeCompare(a.completedAt || "")
-    return (a.addedAt || "").localeCompare(b.addedAt || "")
-  })
-
-  // Summary — domain count and the average gap to SOTA (100 - current).
-  const avgGap =
-    domains.length === 0
-      ? 0
-      : Math.round(
-          domains.reduce((acc, d) => acc + (100 - clamp01(d.current)), 0) / domains.length,
-        )
+  // Average understanding across all articles (article-weighted), and
+  // gap to SOTA = 100 - that. Tone watches against gap thresholds so a
+  // huge unread surface jumps out.
+  const understood = learning.stats.understood
+  const gap = 100 - understood
 
   return (
     <section className="dash-section">
       <div className="dash-section__head">
         <h2>{t.learningTitle}</h2>
-        {canWrite && (
-          <div className="dash-section__actions">
-            <button className="dash-btn dash-btn--ghost" onClick={props.onAddDomain}>
-              {t.addDomain}
-            </button>
-            <button
-              className="dash-btn dash-btn--ghost"
-              onClick={props.onAddLearningTask}
-              disabled={false}
-            >
-              {t.addLearningTask}
-            </button>
-          </div>
-        )}
+        <a className="dash-btn dash-btn--ghost" href="/dashboard/learning/">
+          {t.learningOpenHub}
+        </a>
       </div>
       <div className="dash-summary">
         <SummaryPill
@@ -1427,62 +1334,42 @@ function LearningSection(props: {
           value={t.learningSummaryCount(domains.length)}
           tone="muted"
         />
-        {domains.length > 0 && (
-          <SummaryPill
-            label={t.learningSummaryGap}
-            value={`${avgGap}%`}
-            tone={avgGap > 60 ? "warn" : avgGap > 30 ? "watch" : "good"}
-          />
+        {learning.stats.articles > 0 && (
+          <>
+            <SummaryPill
+              label={t.learningSummaryGap}
+              value={`${gap}%`}
+              tone={gap > 60 ? "warn" : gap > 30 ? "watch" : "good"}
+            />
+            <SummaryPill
+              label={t.learningSummaryArticles}
+              value={`${learning.stats.read}/${learning.stats.articles}`}
+              tone="muted"
+            />
+          </>
         )}
       </div>
 
       {domains.length === 0 ? (
-        <p className="dash-empty">{t.learningEmpty}</p>
+        <p className="dash-empty">
+          {t.learningEmpty}
+        </p>
       ) : (
         <div className="dash-learning">
           <div className="dash-learning__radar">
-            <LearningRadar domains={domains} width={320} />
+            <LearningRadar axes={axes} width={320} />
           </div>
-          <div className="dash-learning__domains">
-            <h3 className="dash-h3">{t.domainsHeader}</h3>
+          <div className="dash-learning__cards">
             {domains.map((d) => (
-              <DomainEditor
-                key={d.id}
-                domain={d}
-                canWrite={canWrite}
-                onPatch={(p) => patchDomain(d.id, p)}
-                onRemove={() => removeDomain(d.id)}
-              />
+              <LearningDomainCard key={d.id} domain={d} />
             ))}
           </div>
-        </div>
-      )}
-
-      {(domains.length > 0 || tasks.length > 0) && (
-        <div className="dash-learning__tasks">
-          <h3 className="dash-h3">{t.learningTasksHeader}</h3>
-          {sortedTasks.length === 0 ? (
-            <p className="dash-empty">—</p>
-          ) : (
-            <ul className="dash-ltasks">
-              {sortedTasks.map((task) => (
-                <LearningTaskRow
-                  key={task.id}
-                  task={task}
-                  domains={domains}
-                  canWrite={canWrite}
-                  focusOnMount={task.id === props.focusTaskId}
-                  onPatch={(p) => patchTask(task.id, p)}
-                  onRemove={() => removeTask(task.id)}
-                />
-              ))}
-            </ul>
-          )}
         </div>
       )}
     </section>
   )
 }
+
 
 // ---------------------------------------------------------------------------
 // Health — live Apple Health metrics, pushed from an iOS Shortcut to the
@@ -2747,7 +2634,6 @@ function Dashboard(props: {
   const [focusMetricId, setFocusMetricId] = useState<string | null>(null)
   const [focusMealId, setFocusMealId] = useState<string | null>(null)
   const [focusExerciseId, setFocusExerciseId] = useState<string | null>(null)
-  const [focusLearningTaskId, setFocusLearningTaskId] = useState<string | null>(null)
 
   // Display locale comes from the global chrome toggle — track it in state so
   // the panel re-renders when the user switches language.
@@ -2953,38 +2839,6 @@ function Dashboard(props: {
     setExerciseLog((log) => [...log, { id, date: todayISO(), name: "", kcal: 0 }])
     setFocusExerciseId(id)
   }, [setExerciseLog])
-  const setLearningDomains = useCallback(
-    (mutate: (ds: LearningDomain[]) => LearningDomain[]) =>
-      commit((cur) => ({ ...cur, learningDomains: mutate(cur.learningDomains) }), [
-        "learningDomains",
-      ]),
-    [commit],
-  )
-  const setLearningTasks = useCallback(
-    (mutate: (ts: LearningTask[]) => LearningTask[]) =>
-      commit((cur) => ({ ...cur, learningTasks: mutate(cur.learningTasks) }), ["learningTasks"]),
-    [commit],
-  )
-  const addDomain = useCallback(() => {
-    const id = `ld-${Date.now()}`
-    setLearningDomains((ds) => [...ds, { id, label: "", current: 0, target: 100, note: "" }])
-  }, [setLearningDomains])
-  const addLearningTask = useCallback(() => {
-    const id = `lt-${Date.now()}`
-    setLearningTasks((ts) => [
-      ...ts,
-      {
-        id,
-        domainId: "",
-        title: "",
-        note: "",
-        done: false,
-        addedAt: new Date().toISOString(),
-        completedAt: "",
-      },
-    ])
-    setFocusLearningTaskId(id)
-  }, [setLearningTasks])
   // AI kcal estimate — generic over food/exercise via the `intent` flag.
   // Returns null on any failure so the row leaves kcal for the user to type.
   const estimateKcal = useCallback<EstimateKcalFn>(
@@ -3067,16 +2921,7 @@ function Dashboard(props: {
           setView={setView}
           onAddGoal={addGoal}
         />
-        <LearningSection
-          domains={data.learningDomains}
-          tasks={data.learningTasks}
-          canWrite={canWrite}
-          focusTaskId={focusLearningTaskId}
-          setDomains={setLearningDomains}
-          setTasks={setLearningTasks}
-          onAddDomain={addDomain}
-          onAddLearningTask={addLearningTask}
-        />
+        <LearningSection learning={agg?.learning} />
         <HealthSection
           samples={health}
           error={healthErr}
