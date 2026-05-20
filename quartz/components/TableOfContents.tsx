@@ -61,7 +61,9 @@ export default ((opts?: Partial<Options>) => {
         >
           {fileData.toc.map((tocEntry) => (
             <li key={tocEntry.slug} class={`depth-${tocEntry.depth}`}>
-              <a href={`#${tocEntry.slug}`} data-for={tocEntry.slug}>
+              {/* `title` so the full heading shows on hover even when CSS
+                  truncates it to a single line with ellipsis. */}
+              <a href={`#${tocEntry.slug}`} data-for={tocEntry.slug} title={tocEntry.text}>
                 {tocEntry.text}
               </a>
             </li>

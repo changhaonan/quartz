@@ -115,6 +115,16 @@
       padding: 0 0.7rem 0.5rem;
       overflow-y: auto;
       max-height: calc(70vh - 2.4rem);
+
+      // Long headings ellipsis-truncate to one line; the `title` attr (set
+      // when the ToC component renders) restores the full text on hover.
+      & > li > a {
+        display: block;
+        max-width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
     }
 
     // collapsed — narrow vertical strip on the right edge
@@ -178,4 +188,23 @@
 
 .bridge-frame-card iframe {
   color-scheme: light;
+}
+
+// Explorer (left sidebar): clamp file titles + folder titles to a single
+// line with ellipsis. Long page titles (e.g. paper names) used to wrap to
+// 3 lines and make the navigation list ugly. The `title` attribute on the
+// element (set by explorer.inline.ts) gives the full text back on hover.
+.explorer-content {
+  a,
+  .folder-title {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+  // Active page indicator (border on the side) needs to keep working
+  // alongside the truncation — that's already done via the parent <li>'s
+  // styling, not the <a>'s, so no extra rule needed here.
 }
