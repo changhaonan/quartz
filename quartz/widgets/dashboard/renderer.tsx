@@ -23,6 +23,8 @@ import type {
   GoalPriority,
   GoalSize,
   GoalStatus,
+  LearningDomain,
+  LearningTask,
   MealEntry,
   MealType,
   WeightEntry,
@@ -1059,6 +1061,425 @@ function GoalsSection(props: {
           />
         ))}
       </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Learning — a radar of "how far am I from SOTA" per self-chosen domain,
+// plus a thin task list of reps that should move those needles.
+// The radar is a hand-rolled SVG (same approach as TrendChart further
+// down — no charting dep) so it inherits the theme via currentColor.
+// ---------------------------------------------------------------------------
+
+const clamp01 = (n: number): number => Math.max(0, Math.min(100, n))
+
+// Inline SVG radar — accepts the domain list and renders SOTA ring (always
+// at the perimeter), the per-domain current polygon (filled), an optional
+// target polygon (dashed outline). Axes are arranged starting at 12 o'clock
+// and proceeding clockwise so the natural reading order matches.
+function LearningRadar(props: {
+  domains: LearningDomain[]
+  // total svg width — height auto-computed to leave room for the labels.
+  width: number
+}) {
+  const t = useStrings()
+  const gradId = useId()
+  const n = props.domains.length
+  // Reserve room around the polygon for axis labels.
+  const pad = 38
+  const w = props.width
+  const h = w
+  const cx = w / 2
+  const cy = h / 2
+  const r = Math.min(cx, cy) - pad
+
+  if (n < 3) {
+    return <div className="dash-radar__hint">{t.radarHint}</div>
+  }
+
+  // θ_i — start at 12 o'clock and go clockwise. SVG y grows downward, so
+  // "up" is -sin/-cos: we use the conventional polar with -π/2 offset.
+  const angle = (i: number) => -Math.PI / 2 + (2 * Math.PI * i) / n
+  const pt = (i: number, frac: number) => {
+    const a = angle(i)
+    return { x: cx + r * frac * Math.cos(a), y: cy + r * frac * Math.sin(a) }
+  }
+
+  // Grid: 4 concentric polygons at 25/50/75/100% of r.
+  const grid = [0.25, 0.5, 0.75, 1].map((frac) => {
+    const pts = Array.from({ length: n }, (_, i) => pt(i, frac))
+    return pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
+  })
+  // Spokes — one per axis.
+  const spokes = Array.from({ length: n }, (_, i) => pt(i, 1))
+  // Filled "current" polygon and outlined "target" polygon.
+  const currentPts = props.domains.map((d, i) => pt(i, clamp01(d.current) / 100))
+  const targetPts = props.domains.map((d, i) => pt(i, clamp01(d.target) / 100))
+  const poly = (pts: { x: number; y: number }[]) =>
+    pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
+
+  // Label placement — slightly outside the outermost ring along each axis.
+  const labels = props.domains.map((d, i) => {
+    const a = angle(i)
+    const lr = r + 14
+    const x = cx + lr * Math.cos(a)
+    const y = cy + lr * Math.sin(a)
+    // Right-of-center labels: anchor start. Left: anchor end. Top/bottom: middle.
+    const cos = Math.cos(a)
+    const anchor: "middle" | "start" | "end" =
+      Math.abs(cos) < 0.2 ? "middle" : cos > 0 ? "start" : "end"
+    return { x, y, anchor, label: d.label || "—", current: clamp01(d.current) }
+  })
+
+  return (
+    <svg
+      className="dash-radar"
+      viewBox={`0 0 ${w} ${h}`}
+      width="100%"
+      height={h}
+      role="img"
+      aria-label={t.learningTitle}
+    >
+      <defs>
+        <radialGradient id={gradId} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.08" />
+        </radialGradient>
+      </defs>
+      {/* grid rings */}
+      {grid.map((pts, idx) => (
+        <polygon
+          key={idx}
+          points={pts}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity={idx === grid.length - 1 ? 0.5 : 0.15}
+          strokeWidth={idx === grid.length - 1 ? 1.1 : 0.8}
+        />
+      ))}
+      {/* spokes */}
+      {spokes.map((p, i) => (
+        <line
+          key={i}
+          x1={cx}
+          y1={cy}
+          x2={p.x}
+          y2={p.y}
+          stroke="currentColor"
+          strokeOpacity={0.15}
+          strokeWidth={0.8}
+        />
+      ))}
+      {/* target polygon — outline only */}
+      <polygon
+        points={poly(targetPts)}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity={0.5}
+        strokeDasharray="4 3"
+        strokeWidth={1.1}
+      />
+      {/* current polygon — filled */}
+      <polygon
+        points={poly(currentPts)}
+        fill={`url(#${gradId})`}
+        stroke="currentColor"
+        strokeOpacity={0.85}
+        strokeWidth={1.4}
+      />
+      {/* dots at each domain point so even a low score reads */}
+      {currentPts.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={2.4} fill="currentColor" />
+      ))}
+      {/* labels */}
+      {labels.map((l, i) => (
+        <text
+          key={i}
+          x={l.x.toFixed(1)}
+          y={l.y.toFixed(1)}
+          textAnchor={l.anchor}
+          dominantBaseline="middle"
+          className="dash-radar__label"
+          fill="currentColor"
+        >
+          {l.label}
+          <tspan className="dash-radar__label-pct" dx="4" fill="currentColor" fillOpacity="0.55">
+            {l.current}
+          </tspan>
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+// One row in the right-hand domain editor — label + sliders + remove.
+function DomainEditor(props: {
+  domain: LearningDomain
+  canWrite: boolean
+  onPatch: (patch: Partial<LearningDomain>) => void
+  onRemove: () => void
+}) {
+  const t = useStrings()
+  const { domain: d, canWrite } = props
+  const current = clamp01(d.current)
+  const target = clamp01(d.target)
+  return (
+    <div className="dash-domain">
+      <div className="dash-domain__head">
+        {canWrite ? (
+          <EditableField
+            className="dash-domain__label"
+            value={d.label}
+            placeholder={t.domainPlaceholder}
+            ariaLabel={t.domainLabelAria}
+            onCommit={(v) => props.onPatch({ label: v })}
+          />
+        ) : (
+          <span className="dash-domain__label">{d.label || "—"}</span>
+        )}
+        {canWrite && (
+          <button
+            className="dash-domain__remove"
+            title={t.removeDomain}
+            aria-label={t.removeDomain}
+            onClick={props.onRemove}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <div className="dash-domain__slider">
+        <label className="dash-domain__slider-label">{t.domainCurrent}</label>
+        <input
+          className="dash-domain__range dash-domain__range--current"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={current}
+          disabled={!canWrite}
+          aria-label={t.domainCurrentAria}
+          onChange={(e) => props.onPatch({ current: Number(e.currentTarget.value) })}
+        />
+        <span className="dash-domain__slider-value">{current}</span>
+      </div>
+      <div className="dash-domain__slider">
+        <label className="dash-domain__slider-label">{t.domainTarget}</label>
+        <input
+          className="dash-domain__range dash-domain__range--target"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={target}
+          disabled={!canWrite}
+          aria-label={t.domainTargetAria}
+          onChange={(e) => props.onPatch({ target: Number(e.currentTarget.value) })}
+        />
+        <span className="dash-domain__slider-value">{target}</span>
+      </div>
+    </div>
+  )
+}
+
+// One row in the learning task list — title, domain select, done checkbox.
+function LearningTaskRow(props: {
+  task: LearningTask
+  domains: LearningDomain[]
+  canWrite: boolean
+  focusOnMount: boolean
+  onPatch: (patch: Partial<LearningTask>) => void
+  onRemove: () => void
+}) {
+  const t = useStrings()
+  const { task, domains, canWrite } = props
+  const onToggle = () => {
+    const next = !task.done
+    props.onPatch({
+      done: next,
+      completedAt: next ? new Date().toISOString() : "",
+    })
+  }
+  return (
+    <li className={`dash-ltask${task.done ? " is-done" : ""}`}>
+      <input
+        type="checkbox"
+        className="dash-ltask__check"
+        checked={task.done}
+        disabled={!canWrite}
+        aria-label={t.learningTaskDoneAria}
+        onChange={onToggle}
+      />
+      {canWrite ? (
+        <EditableField
+          className="dash-ltask__title"
+          value={task.title}
+          placeholder={t.learningTaskPlaceholder}
+          ariaLabel={t.learningTaskAria}
+          focusOnMount={props.focusOnMount}
+          onCommit={(v) => props.onPatch({ title: v })}
+        />
+      ) : (
+        <span className="dash-ltask__title">{task.title || "—"}</span>
+      )}
+      {canWrite ? (
+        <select
+          className="dash-ltask__domain"
+          value={task.domainId}
+          aria-label={t.learningTaskDomainAria}
+          onChange={(e) => props.onPatch({ domainId: e.currentTarget.value })}
+        >
+          <option value="">{t.learningTaskNoDomain}</option>
+          {domains.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.label || "—"}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="dash-ltask__domain dash-ltask__domain--ro">
+          {domains.find((d) => d.id === task.domainId)?.label || t.learningTaskNoDomain}
+        </span>
+      )}
+      {canWrite && (
+        <button
+          className="dash-ltask__remove"
+          title={t.removeLearningTask}
+          aria-label={t.removeLearningTask}
+          onClick={props.onRemove}
+        >
+          ✕
+        </button>
+      )}
+    </li>
+  )
+}
+
+// The Learning section itself — radar on the left, controls on the right,
+// task list spanning underneath. Empty state nudges adding a first domain.
+function LearningSection(props: {
+  domains: LearningDomain[]
+  tasks: LearningTask[]
+  canWrite: boolean
+  focusTaskId: string | null
+  setDomains: (mutate: (d: LearningDomain[]) => LearningDomain[]) => void
+  setTasks: (mutate: (t: LearningTask[]) => LearningTask[]) => void
+  onAddDomain: () => void
+  onAddLearningTask: () => void
+}) {
+  const t = useStrings()
+  const { domains, tasks, canWrite } = props
+
+  const patchDomain = (id: string, patch: Partial<LearningDomain>) => {
+    props.setDomains((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
+  }
+  const removeDomain = (id: string) => {
+    props.setDomains((ds) => ds.filter((d) => d.id !== id))
+    // Loosen tasks linked to the deleted domain — keep the task, drop the FK.
+    props.setTasks((ts) => ts.map((t0) => (t0.domainId === id ? { ...t0, domainId: "" } : t0)))
+  }
+  const patchTask = (id: string, patch: Partial<LearningTask>) => {
+    props.setTasks((ts) => ts.map((t0) => (t0.id === id ? { ...t0, ...patch } : t0)))
+  }
+  const removeTask = (id: string) => {
+    props.setTasks((ts) => ts.filter((t0) => t0.id !== id))
+  }
+
+  // Sort tasks: open first (in insertion order), then done (newest completion
+  // first so the most recent "win" is visible).
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1
+    if (a.done) return (b.completedAt || "").localeCompare(a.completedAt || "")
+    return (a.addedAt || "").localeCompare(b.addedAt || "")
+  })
+
+  // Summary — domain count and the average gap to SOTA (100 - current).
+  const avgGap =
+    domains.length === 0
+      ? 0
+      : Math.round(
+          domains.reduce((acc, d) => acc + (100 - clamp01(d.current)), 0) / domains.length,
+        )
+
+  return (
+    <section className="dash-section">
+      <div className="dash-section__head">
+        <h2>{t.learningTitle}</h2>
+        {canWrite && (
+          <div className="dash-section__actions">
+            <button className="dash-btn dash-btn--ghost" onClick={props.onAddDomain}>
+              {t.addDomain}
+            </button>
+            <button
+              className="dash-btn dash-btn--ghost"
+              onClick={props.onAddLearningTask}
+              disabled={false}
+            >
+              {t.addLearningTask}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="dash-summary">
+        <SummaryPill
+          label={t.learningTitle}
+          value={t.learningSummaryCount(domains.length)}
+          tone="muted"
+        />
+        {domains.length > 0 && (
+          <SummaryPill
+            label={t.learningSummaryGap}
+            value={`${avgGap}%`}
+            tone={avgGap > 60 ? "warn" : avgGap > 30 ? "watch" : "good"}
+          />
+        )}
+      </div>
+
+      {domains.length === 0 ? (
+        <p className="dash-empty">{t.learningEmpty}</p>
+      ) : (
+        <div className="dash-learning">
+          <div className="dash-learning__radar">
+            <LearningRadar domains={domains} width={320} />
+          </div>
+          <div className="dash-learning__domains">
+            <h3 className="dash-h3">{t.domainsHeader}</h3>
+            {domains.map((d) => (
+              <DomainEditor
+                key={d.id}
+                domain={d}
+                canWrite={canWrite}
+                onPatch={(p) => patchDomain(d.id, p)}
+                onRemove={() => removeDomain(d.id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(domains.length > 0 || tasks.length > 0) && (
+        <div className="dash-learning__tasks">
+          <h3 className="dash-h3">{t.learningTasksHeader}</h3>
+          {sortedTasks.length === 0 ? (
+            <p className="dash-empty">—</p>
+          ) : (
+            <ul className="dash-ltasks">
+              {sortedTasks.map((task) => (
+                <LearningTaskRow
+                  key={task.id}
+                  task={task}
+                  domains={domains}
+                  canWrite={canWrite}
+                  focusOnMount={task.id === props.focusTaskId}
+                  onPatch={(p) => patchTask(task.id, p)}
+                  onRemove={() => removeTask(task.id)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -2326,6 +2747,7 @@ function Dashboard(props: {
   const [focusMetricId, setFocusMetricId] = useState<string | null>(null)
   const [focusMealId, setFocusMealId] = useState<string | null>(null)
   const [focusExerciseId, setFocusExerciseId] = useState<string | null>(null)
+  const [focusLearningTaskId, setFocusLearningTaskId] = useState<string | null>(null)
 
   // Display locale comes from the global chrome toggle — track it in state so
   // the panel re-renders when the user switches language.
@@ -2531,6 +2953,38 @@ function Dashboard(props: {
     setExerciseLog((log) => [...log, { id, date: todayISO(), name: "", kcal: 0 }])
     setFocusExerciseId(id)
   }, [setExerciseLog])
+  const setLearningDomains = useCallback(
+    (mutate: (ds: LearningDomain[]) => LearningDomain[]) =>
+      commit((cur) => ({ ...cur, learningDomains: mutate(cur.learningDomains) }), [
+        "learningDomains",
+      ]),
+    [commit],
+  )
+  const setLearningTasks = useCallback(
+    (mutate: (ts: LearningTask[]) => LearningTask[]) =>
+      commit((cur) => ({ ...cur, learningTasks: mutate(cur.learningTasks) }), ["learningTasks"]),
+    [commit],
+  )
+  const addDomain = useCallback(() => {
+    const id = `ld-${Date.now()}`
+    setLearningDomains((ds) => [...ds, { id, label: "", current: 0, target: 100, note: "" }])
+  }, [setLearningDomains])
+  const addLearningTask = useCallback(() => {
+    const id = `lt-${Date.now()}`
+    setLearningTasks((ts) => [
+      ...ts,
+      {
+        id,
+        domainId: "",
+        title: "",
+        note: "",
+        done: false,
+        addedAt: new Date().toISOString(),
+        completedAt: "",
+      },
+    ])
+    setFocusLearningTaskId(id)
+  }, [setLearningTasks])
   // AI kcal estimate — generic over food/exercise via the `intent` flag.
   // Returns null on any failure so the row leaves kcal for the user to type.
   const estimateKcal = useCallback<EstimateKcalFn>(
@@ -2612,6 +3066,16 @@ function Dashboard(props: {
           setGoals={setGoals}
           setView={setView}
           onAddGoal={addGoal}
+        />
+        <LearningSection
+          domains={data.learningDomains}
+          tasks={data.learningTasks}
+          canWrite={canWrite}
+          focusTaskId={focusLearningTaskId}
+          setDomains={setLearningDomains}
+          setTasks={setLearningTasks}
+          onAddDomain={addDomain}
+          onAddLearningTask={addLearningTask}
         />
         <HealthSection
           samples={health}

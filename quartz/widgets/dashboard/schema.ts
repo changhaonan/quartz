@@ -118,6 +118,42 @@ export const ExerciseEntrySchema = z.object({
 })
 export type ExerciseEntry = z.infer<typeof ExerciseEntrySchema>
 
+// --- Learning radar + tasks ------------------------------------------------
+//
+// The learning section is a "where am I vs. SOTA" picture: one axis per
+// domain on a radar chart, with my current level (0–100) plotted as the
+// filled polygon and an optional target ring laid over it. Then a small
+// task list — actions I've committed to in service of moving each axis.
+
+// One radar axis. `current` is my self-assessed level on the 0–100 SOTA
+// scale; `target` is where I want to land (defaults to 100). Both are
+// hand-edited via sliders.
+export const LearningDomainSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().default(""),
+  // 0–100; clamped on read. 0 = "I know nothing", 100 = "at SOTA".
+  current: z.number().default(0),
+  // 0–100; the ring the radar should highlight. 100 = aim for SOTA.
+  target: z.number().default(100),
+  note: z.string().default(""),
+})
+export type LearningDomain = z.infer<typeof LearningDomainSchema>
+
+// One learning task. Lightweight on purpose — the heavy "goal" cards
+// live in the goals board; these are the little reps that move a domain.
+export const LearningTaskSchema = z.object({
+  id: z.string().min(1),
+  // FK to a LearningDomain.id, or "" for cross-cutting.
+  domainId: z.string().default(""),
+  title: z.string().default(""),
+  note: z.string().default(""),
+  done: z.boolean().default(false),
+  // ISO timestamps for sort + light "when did I commit / finish" trail.
+  addedAt: z.string().default(""),
+  completedAt: z.string().default(""),
+})
+export type LearningTask = z.infer<typeof LearningTaskSchema>
+
 // Body profile — feeds the Mifflin-St Jeor BMR estimate, plus the
 // per-kind weekly capacities the goals load% is divided against. Each
 // field is optional / has a sensible default.
@@ -154,6 +190,8 @@ export const DashboardDataSchema = z.object({
   weightLog: z.array(WeightEntrySchema).default([]),
   mealLog: z.array(MealEntrySchema).default([]),
   exerciseLog: z.array(ExerciseEntrySchema).default([]),
+  learningDomains: z.array(LearningDomainSchema).default([]),
+  learningTasks: z.array(LearningTaskSchema).default([]),
   profile: DashboardProfileSchema.default({
     heightCm: 0,
     birthDate: "",
